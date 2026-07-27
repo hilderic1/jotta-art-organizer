@@ -365,24 +365,28 @@ export default function DedupePage() {
     setPhashError(null)
     phashStopRef.current = false
 
-    // Capture initial total to prevent progress bar from jumping if phashRepresentatives changes
-    if (!phashInitialTotalRef.current) {
-      phashInitialTotalRef.current = phashRepresentatives.filter((f) => f.md5).length
-    }
-    const initialTotal = phashInitialTotalRef.current
+    // Capture initial total once
+    const initialTotal = phashRepresentatives.filter((f) => f.md5).length
+    phashInitialTotalRef.current = null // Reset for next scan
+    console.log('DEBUG: runPhashLoop started. initialTotal:', initialTotal, 'starting hashedCount:', startManifest.hashedCount)
 
     let manifest = startManifest
     const map = new Map(startMap)
+    let iterationCount = 0
     try {
-      while (!phashStopRef.current) {
+      while (!phashStopRef.current && manifest.hashedCount < initialTotal) {
+        iterationCount++
         const remaining = phashRepresentatives.filter((f) => f.md5 && !map.has(f.md5))
-        if (remaining.length === 0) break
+        console.log(`DEBUG: iteration ${iterationCount}. remaining files: ${remaining.length}, hashedCount: ${manifest.hashedCount}/${initialTotal}`)
+        if (remaining.length === 0) {
+          console.log('DEBUG: loop exiting - no remaining files')
+          break
+        }
         const chunk = remaining.slice(0, 30).map((f) => ({ md5: f.md5 as string, path: f.path }))
-        // Don't update progress during chunk processing; wait for completion to avoid concurrent callback issues
         const result = await runPhashChunk(location, scanId, manifest, chunk)
         manifest = result.manifest
         for (const [k, v] of result.hashed) map.set(k, v)
-        // Update progress after chunk completes (manifest.hashedCount is now authoritative)
+        // Update UI with progress
         setPhashProgress({ done: manifest.hashedCount, total: initialTotal })
         setPhashManifest(manifest)
         setPhashMap(new Map(map))
@@ -394,8 +398,12 @@ export default function DedupePage() {
           : 'Scan failed — progress saved; you can resume.'
       )
     } finally {
+      console.log('DEBUG: runPhashLoop finally block executing. manifest.hashedCount:', manifest.hashedCount, 'initialTotal:', initialTotal, 'phashStopRef:', phashStopRef.current)
+      // Ensure cleanup always happens
       setPhashRunning(false)
       setPhashProgress(null)
+      phashInitialTotalRef.current = null
+      console.log('DEBUG: runPhashLoop state updates queued')
     }
   }
 
