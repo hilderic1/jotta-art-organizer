@@ -1,0 +1,109 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import { viewUrl, type MountpointRef } from '@/lib/api'
+import { Thumbnail } from './Thumbnail'
+import { ImageViewer } from './ImageViewer'
+import type { Category, ArtworkTags } from '@/lib/metadata'
+
+export function TagFilterBrowser({ categories, artworks }: { categories: Category[]; artworks: ArtworkTags[] }) {
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [mode, setMode] = useState<'all' | 'any'>('all')
+  const [viewingImage, setViewingImage] = useState<{ loc: MountpointRef; path: string } | null>(null)
+
+  function toggle(categoryId: string, value: string) {
+    const key = `${categoryId}:${value}`
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const matching = useMemo(() => {
+    if (selected.size === 0) return []
+    const selectedArr = [...selected]
+    return artworks.filter((a) => {
+      const artworkKeys = new Set<string>()
+      for (const [catId, values] of Object.entries(a.tags)) {
+        for (const v of values) artworkKeys.add(`${catId}:${v}`)
+      }
+      return mode === 'all' ? selectedArr.every((k) => artworkKeys.has(k)) : selectedArr.some((k) => artworkKeys.has(k))
+    })
+  }, [artworks, selected, mode])
+
+  return (
+    <div className="flex flex-col gap-4">
+      {categories.length === 0 && (
+        <p className="text-sm text-zinc-500">No categories defined yet — add some in the Categories tab first.</p>
+      )}
+
+      <div className="flex flex-col gap-3">
+        {categories.map((category) => (
+          <div key={category.id}>
+            <p className="mb-1 text-xs font-medium text-zinc-500">{category.name}</p>
+            <div className="flex flex-wrap gap-2">
+              {category.values.map((value) => {
+                const active = selected.has(`${category.id}:${value}`)
+                return (
+                  <button
+                    key={value}
+                    onClick={() => toggle(category.id, value)}
+                    className={`rounded-full px-3 py-1 text-xs ${
+                      active ? 'bg-indigo-600 text-white' : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                    }`}
+                  >
+                    {value}
+                  </button>
+                )
+              })}
+              {category.values.length === 0 && <span className="text-xs text-zinc-400">No values defined.</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 text-sm">
+          <span className="text-zinc-500">Match:</span>
+          <label className="flex items-center gap-1">
+            <input type="radio" checked={mode === 'all'} onChange={() => setMode('all')} />
+            All selected (intersection)
+          </label>
+          <label className="flex items-center gap-1">
+            <input type="radio" checked={mode === 'any'} onChange={() => setMode('any')} />
+            Any selected (union)
+          </label>
+        </div>
+      )}
+
+      {selected.size === 0 && <p className="text-sm text-zinc-500">Pick one or more values above to see matches.</p>}
+
+      {selected.size > 0 && (
+        <>
+          <p className="text-sm text-zinc-500">
+            {matching.length} match{matching.length === 1 ? '' : 'es'}
+          </p>
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {matching.map((a) => (
+              <li key={a.md5}>
+                <button onClick={() => setViewingImage({ loc: { device: a.device, mountpoint: a.mountpoint }, path: a.path })}>
+                  <Thumbnail
+                    loc={{ device: a.device, mountpoint: a.mountpoint }}
+                    path={a.path}
+                    alt={a.path}
+                    size="WM"
+                    className="h-28 w-full rounded object-cover cursor-pointer hover:opacity-80"
+                  />
+                </button>
+                <p className="mt-1 truncate text-xs text-zinc-500">{a.path.split('/').pop()}</p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {viewingImage && <ImageViewer loc={viewingImage.loc} path={viewingImage.path} onClose={() => setViewingImage(null)} />}
+    </div>
+  )
+}
