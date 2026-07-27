@@ -384,9 +384,12 @@ export default function DedupePage() {
           break
         }
         const chunk = remaining.slice(0, 30).map((f) => ({ md5: f.md5 as string, path: f.path }))
+        console.log(`DEBUG: processing chunk of ${chunk.length} files`)
         const result = await runPhashChunk(location, scanId, manifest, chunk)
+        console.log(`DEBUG: runPhashChunk returned. old hashedCount: ${manifest.hashedCount}, new hashedCount: ${result.manifest.hashedCount}, hashed items: ${result.hashed.size}`)
         manifest = result.manifest
         for (const [k, v] of result.hashed) map.set(k, v)
+        console.log(`DEBUG: after update, total map size: ${map.size}`)
         // Update UI with progress
         setPhashProgress({ done: manifest.hashedCount, total: initialTotal })
         setPhashManifest(manifest)
