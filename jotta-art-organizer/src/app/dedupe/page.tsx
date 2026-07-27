@@ -365,8 +365,9 @@ export default function DedupePage() {
     setPhashError(null)
     phashStopRef.current = false
 
-    // Capture initial total once
-    const initialTotal = phashRepresentatives.filter((f) => f.md5).length
+    // Capture representatives ONCE at start — prevent re-renders from changing the file list mid-scan
+    const capturedRepresentatives = phashRepresentatives
+    const initialTotal = capturedRepresentatives.filter((f) => f.md5).length
     phashInitialTotalRef.current = null // Reset for next scan
     console.log('DEBUG: runPhashLoop started. initialTotal:', initialTotal, 'starting hashedCount:', startManifest.hashedCount)
 
@@ -376,7 +377,7 @@ export default function DedupePage() {
     try {
       while (!phashStopRef.current && manifest.hashedCount < initialTotal) {
         iterationCount++
-        const remaining = phashRepresentatives.filter((f) => f.md5 && !map.has(f.md5))
+        const remaining = capturedRepresentatives.filter((f) => f.md5 && !map.has(f.md5))
         console.log(`DEBUG: iteration ${iterationCount}. remaining files: ${remaining.length}, hashedCount: ${manifest.hashedCount}/${initialTotal}`)
         if (remaining.length === 0) {
           console.log('DEBUG: loop exiting - no remaining files')
