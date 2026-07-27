@@ -37,6 +37,8 @@ function uniqueByMd5(files: JottaEntry[]): JottaEntry[] {
   const result: JottaEntry[] = []
   for (const f of files) {
     if (!f.md5 || seen.has(f.md5)) continue
+    // Skip metadata sidecars and JSON files — they can't be perceptually hashed
+    if (f.path.endsWith('.json') || f.path.endsWith('.supplemental-metadata.json')) continue
     seen.add(f.md5)
     result.push(f)
   }
@@ -369,27 +371,18 @@ export default function DedupePage() {
     const capturedRepresentatives = phashRepresentatives
     const initialTotal = capturedRepresentatives.filter((f) => f.md5).length
     phashInitialTotalRef.current = null // Reset for next scan
-    console.log('DEBUG: runPhashLoop started. initialTotal:', initialTotal, 'starting hashedCount:', startManifest.hashedCount)
 
     let manifest = startManifest
     const map = new Map(startMap)
-    let iterationCount = 0
     try {
       while (!phashStopRef.current && manifest.hashedCount < initialTotal) {
         iterationCount++
         const remaining = capturedRepresentatives.filter((f) => f.md5 && !map.has(f.md5))
-        console.log(`DEBUG: iteration ${iterationCount}. remaining files: ${remaining.length}, hashedCount: ${manifest.hashedCount}/${initialTotal}`)
-        if (remaining.length === 0) {
-          console.log('DEBUG: loop exiting - no remaining files')
-          break
-        }
+        if (remaining.length === 0) break
         const chunk = remaining.slice(0, 30).map((f) => ({ md5: f.md5 as string, path: f.path }))
-        console.log(`DEBUG: processing chunk of ${chunk.length} files`)
         const result = await runPhashChunk(location, scanId, manifest, chunk)
-        console.log(`DEBUG: runPhashChunk returned. old hashedCount: ${manifest.hashedCount}, new hashedCount: ${result.manifest.hashedCount}, hashed items: ${result.hashed.size}`)
         manifest = result.manifest
         for (const [k, v] of result.hashed) map.set(k, v)
-        console.log(`DEBUG: after update, total map size: ${map.size}`)
         // Update UI with progress
         setPhashProgress({ done: manifest.hashedCount, total: initialTotal })
         setPhashManifest(manifest)
@@ -402,12 +395,10 @@ export default function DedupePage() {
           : 'Scan failed — progress saved; you can resume.'
       )
     } finally {
-      console.log('DEBUG: runPhashLoop finally block executing. manifest.hashedCount:', manifest.hashedCount, 'initialTotal:', initialTotal, 'phashStopRef:', phashStopRef.current)
       // Ensure cleanup always happens
       setPhashRunning(false)
       setPhashProgress(null)
       phashInitialTotalRef.current = null
-      console.log('DEBUG: runPhashLoop state updates queued')
     }
   }
 
