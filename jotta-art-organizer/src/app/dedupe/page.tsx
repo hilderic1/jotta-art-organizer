@@ -376,7 +376,6 @@ export default function DedupePage() {
     const map = new Map(startMap)
     try {
       while (!phashStopRef.current && manifest.hashedCount < initialTotal) {
-        iterationCount++
         const remaining = capturedRepresentatives.filter((f) => f.md5 && !map.has(f.md5))
         if (remaining.length === 0) break
         const chunk = remaining.slice(0, 30).map((f) => ({ md5: f.md5 as string, path: f.path }))
