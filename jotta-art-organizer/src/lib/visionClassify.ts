@@ -17,7 +17,25 @@ export const MOOD_CATEGORY_ID = 'mood'
 // lists to show the full picker for a category even before it's ever been
 // saved (these categories start empty otherwise, which meant the modal had
 // nothing to render for a value the AI had just assigned).
-export const STYLE_VALUES = ['Painterly/Oil-stylized', 'Sketch/Drawing', 'Geometric/Pattern', 'Photomontage', 'Photorealistic', 'Other']
+// This library is overwhelmingly abstract, intuitive digital art made in
+// PicsArt, so the style vocabulary is the one that actually describes that
+// work. The definitions travel with the values: they're what the model is
+// given to choose against, and a bare label like "Conceptual Digital Art"
+// is far too open to interpretation on its own.
+export const STYLE_DEFINITIONS: Record<string, string> = {
+  'Abstract Digital Art': 'built on colour, form, rhythm and composition rather than realistic subjects',
+  'Intuitive Digital Art': 'made without a predetermined plan, with instinct and emotion guiding the process',
+  'Generative Art': 'produced partly or entirely by algorithms or code',
+  'Digital Expressionism': 'emphasises emotion, energy and personal experience over realism',
+  'Surreal Digital Art': 'dreamlike, symbolic, or impossible worlds',
+  'Geometric/Constructivist Digital Art': 'built around mathematical or architectural structure',
+  'Mixed-Media Digital Art': 'combines painting, photography, drawing, texture and digital technique',
+  'Conceptual Digital Art': 'the underlying idea matters as much as the visual result',
+  'Visionary/Cosmic Art': 'explores space, consciousness, spirituality, or the universe',
+  Other: 'genuinely none of the above — e.g. a photograph or a non-artwork image',
+}
+
+export const STYLE_VALUES = Object.keys(STYLE_DEFINITIONS)
 export const SUBJECT_VALUES = ['Portrait/Figure', 'Animal', 'Abstract', 'Nature/Floral', 'Cosmic/Sci-fi', 'Other']
 export const PALETTE_VALUES = ['Warm', 'Cool', 'Vibrant/Mixed', 'Monochrome']
 export const FRAMED_VALUES = ['Yes', 'No']

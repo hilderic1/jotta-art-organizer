@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAccessToken } from '@/lib/jotta/server'
 import { renderImage } from '@/lib/jotta/render'
-import { STYLE_VALUES, SUBJECT_VALUES, PALETTE_VALUES, FRAMED_VALUES, MOOD_VALUES } from '@/lib/visionClassify'
+import {
+  STYLE_VALUES,
+  STYLE_DEFINITIONS,
+  SUBJECT_VALUES,
+  PALETTE_VALUES,
+  FRAMED_VALUES,
+  MOOD_VALUES,
+} from '@/lib/visionClassify'
 
 const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001'
 
@@ -11,7 +18,15 @@ const CLASSIFY_TOOL = {
   input_schema: {
     type: 'object',
     properties: {
-      style: { type: 'string', enum: STYLE_VALUES, description: 'The dominant visual style/technique.' },
+      style: {
+        type: 'string',
+        enum: STYLE_VALUES,
+        description: `The dominant style. Several often apply at once; pick the one that best characterises the piece, and reach for "Other" only if none genuinely fit. Definitions — ${Object.entries(
+          STYLE_DEFINITIONS
+        )
+          .map(([value, meaning]) => `${value}: ${meaning}`)
+          .join('; ')}.`,
+      },
       subject: { type: 'string', enum: SUBJECT_VALUES, description: 'What the image is mainly of.' },
       palette: { type: 'string', enum: PALETTE_VALUES, description: 'The dominant color temperature/palette.' },
       framed: { type: 'string', enum: FRAMED_VALUES, description: 'Whether a decorative border/mat/frame is baked into the image itself.' },
@@ -75,7 +90,14 @@ export async function POST(request: NextRequest) {
             role: 'user',
             content: [
               { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-              { type: 'text', text: 'Classify this artwork image using the classify_artwork tool.' },
+              {
+                type: 'text',
+                text:
+                  'Classify this artwork using the classify_artwork tool. Context: this collection is ' +
+                  'largely abstract, intuitive digital art created in PicsArt, so judge it on colour, form, ' +
+                  'rhythm, texture and composition rather than looking for a realistic subject. Absence of a ' +
+                  'recognisable subject is normal here and is not a reason to answer "Other".',
+              },
             ],
           },
         ],
