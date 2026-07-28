@@ -114,6 +114,44 @@ function emptyStore(): MetadataStore {
   return { categories: [], artworks: [] }
 }
 
+// Style, Subject, Palette, Framed and Mood are closed vocabularies, so a
+// value outside the canonical list is invalid by definition — a leftover
+// from an older vocabulary, or the nested arrays a briefly-wrong
+// classification wrote (which render as "Calm/Serene,Dreamy/Mystical", one
+// bogus entry per combination). Cleaning them out on read matters more than
+// it looks: saving re-registers whatever values a record carries, so junk
+// left on artworks reappears in the category list however often it's
+// deleted by hand.
+function cleanTagValues(categoryId: string, values: unknown): string[] {
+  const strings = (Array.isArray(values) ? values : []).filter((v): v is string => typeof v === 'string')
+  const canonical = KNOWN_CLASSIFICATION_VALUES[categoryId]
+  return canonical ? strings.filter((v) => canonical.includes(v)) : strings
+}
+
+function cleanArtwork(artwork: ArtworkTags): ArtworkTags {
+  const tags: Record<string, string[]> = {}
+  for (const [categoryId, values] of Object.entries(artwork.tags ?? {})) {
+    const cleaned = cleanTagValues(categoryId, values)
+    if (cleaned.length > 0) tags[categoryId] = cleaned
+  }
+  return { ...artwork, tags }
+}
+
+// Closed-list categories are reset to exactly their canonical values, which
+// drops junk and fills gaps in one pass. Open categories (People, Year, the
+// style suggestions) keep whatever they hold, minus non-strings.
+function cleanCategories(categories: Category[]): Category[] {
+  return categories.map((category) => {
+    const canonical = KNOWN_CLASSIFICATION_VALUES[category.id]
+    return {
+      ...category,
+      values: canonical
+        ? [...canonical]
+        : (category.values ?? []).filter((v): v is string => typeof v === 'string'),
+    }
+  })
+}
+
 async function loadShardIndex(loc: MountpointRef): Promise<string[]> {
   return (await readJsonFile<string[]>(loc, `${ARTWORK_SHARDS_FOLDER}/${SHARD_INDEX_FILENAME}`)) ?? []
 }
@@ -182,7 +220,7 @@ export async function loadMetadata(loc: MountpointRef): Promise<MetadataStore> {
   const categoriesFile = await readJsonFile<{ categories: Category[] }>(loc, `${METADATA_FOLDER}/${CATEGORIES_FILENAME}`)
   if (categoriesFile) {
     const artworks = await loadAllArtworkShards(loc)
-    return { categories: categoriesFile.categories ?? [], artworks }
+    return { categories: cleanCategories(categoriesFile.categories ?? []), artworks: artworks.map(cleanArtwork) }
   }
   // Not migrated to the sharded format yet (or a brand-new account) — fall
   // back to the old single-file store, then immediately write everything
@@ -281,8 +319,8 @@ export async function loadMetadataForFolder(
   const artworks = await loadShardsByKeys(metadataLoc, keys)
   return {
     store: {
-      categories: categoriesFile.categories ?? [],
-      artworks: artworks.filter((a) => isInFolder(a, folder)),
+      categories: cleanCategories(categoriesFile.categories ?? []),
+      artworks: artworks.filter((a) => isInFolder(a, folder)).map(cleanArtwork),
     },
     shardsLoaded: keys.length,
     shardsTotal: index.length,
