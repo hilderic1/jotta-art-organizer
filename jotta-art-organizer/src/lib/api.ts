@@ -34,9 +34,9 @@ export async function setup(personalLoginToken: string): Promise<{ username: str
 
 export type MountpointRef = { device: string; mountpoint: string }
 
-export type ThumbnailSize = 'WS' | 'WM' | 'WL' | 'WXL'
+export type ThumbnailSize = 'small' | 'medium' | 'large'
 
-export function thumbnailUrl(loc: MountpointRef, path: string, size: ThumbnailSize = 'WS'): string {
+export function thumbnailUrl(loc: MountpointRef, path: string, size: ThumbnailSize = 'small'): string {
   const params = new URLSearchParams({ device: loc.device, mountpoint: loc.mountpoint, path, size })
   return `/api/files/thumbnail?${params.toString()}`
 }
@@ -93,14 +93,28 @@ export async function createFolder(loc: MountpointRef, path: string): Promise<Jo
   return data
 }
 
-export async function deleteFile(loc: MountpointRef, path: string): Promise<void> {
-  const res = await fetch('/api/files/delete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ device: loc.device, mountpoint: loc.mountpoint, path }),
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error ?? 'Failed to delete file.')
+export async function deleteFile(loc: MountpointRef, path: string, retries: number = 3): Promise<void> {
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch('/api/files/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device: loc.device, mountpoint: loc.mountpoint, path }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to delete file.')
+      return
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      if (attempt < retries) {
+        // Exponential backoff: 500ms, 1s, 2s
+        const delay = Math.min(500 * Math.pow(2, attempt), 2000)
+        await new Promise((r) => setTimeout(r, delay))
+      }
+    }
+  }
+  throw lastError || new Error('Failed to delete file after retries.')
 }
 
 export async function copyFile(srcLoc: MountpointRef, srcPath: string, destLoc: MountpointRef, destPath: string): Promise<void> {

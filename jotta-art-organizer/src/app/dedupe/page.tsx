@@ -456,6 +456,8 @@ export default function DedupePage() {
         setSimilarRemoveProgress({ done: removed, total: targets.length })
         await deleteFile(location, filePath)
         removed++
+        // Small delay between requests to avoid overwhelming the server
+        if (removed < targets.length) await new Promise((r) => setTimeout(r, 50))
       }
       if (similarRemoveStopRef.current) {
         setSimilarRemoveError(`Paused after removing ${removed} of ${targets.length}. Resume to continue deletion.`)
@@ -514,6 +516,8 @@ export default function DedupePage() {
         setDeleteProgress({ done: removed, total: targets.length, currentName: filePath.split('/').pop() ?? filePath })
         await deleteFile(location, filePath)
         removed++
+        // Small delay between requests to avoid overwhelming the server
+        if (removed < targets.length) await new Promise((r) => setTimeout(r, 50))
       }
       if (deleteStopRef.current) {
         setDeleteError(
@@ -789,7 +793,7 @@ export default function DedupePage() {
                             loc={location}
                             path={entry.path}
                             alt={entry.name}
-                            size="WM"
+                            size="medium"
                             className="h-16 w-16 rounded object-cover shrink-0"
                           />
                         )}
@@ -974,7 +978,7 @@ export default function DedupePage() {
                                 loc={location}
                                 path={entry.path}
                                 alt={entry.name}
-                                size="WM"
+                                size="medium"
                                 className="h-16 w-16 rounded object-cover cursor-pointer hover:opacity-80"
                               />
                             </button>

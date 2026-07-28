@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAccessToken } from '@/lib/jotta/server'
 import { fetchThumbnail, type ThumbnailSize } from '@/lib/jotta/client'
 
-const VALID_SIZES: ThumbnailSize[] = ['WS', 'WM', 'WL', 'WXL']
+const VALID_SIZES: ThumbnailSize[] = ['small', 'medium', 'large']
 
 // Proxied because the browser has no way to attach the Bearer token
 // Jottacloud requires onto a plain <img src>.
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'device, mountpoint, and path are required.' }, { status: 400 })
     }
     const sizeParam = request.nextUrl.searchParams.get('size')
-    const size = VALID_SIZES.includes(sizeParam as ThumbnailSize) ? (sizeParam as ThumbnailSize) : 'WS'
+    const size = VALID_SIZES.includes(sizeParam as ThumbnailSize) ? (sizeParam as ThumbnailSize) : 'small'
 
     const pathSegments = path.split('/').filter(Boolean)
     const res = await fetchThumbnail(accessToken, username, device, mountpoint, pathSegments, size)

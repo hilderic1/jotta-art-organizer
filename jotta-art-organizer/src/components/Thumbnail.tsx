@@ -7,7 +7,7 @@ export function Thumbnail({
   loc,
   path,
   alt,
-  size = 'WS',
+  size = 'small',
   className = 'h-8 w-8 shrink-0 rounded object-cover',
 }: {
   loc: MountpointRef

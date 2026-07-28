@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 
     // A thumbnail is plenty for style/subject/palette/mood judgments and
     // far cheaper (in tokens and $) than sending the full-resolution file.
-    const thumbRes = await fetchThumbnail(accessToken, username, body.device, body.mountpoint, pathSegments, 'WM')
+    const thumbRes = await fetchThumbnail(accessToken, username, body.device, body.mountpoint, pathSegments, 'medium')
     if (!thumbRes.ok) {
       return NextResponse.json({ error: `Failed to fetch thumbnail (${thumbRes.status}).` }, { status: 502 })
     }
