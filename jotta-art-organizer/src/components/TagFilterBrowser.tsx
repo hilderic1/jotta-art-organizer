@@ -210,7 +210,7 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
                     loc={{ device: a.device, mountpoint: a.mountpoint }}
                     path={a.path}
                     alt={a.path}
-                    size="large"
+                    px={256}
                     className="h-16 w-16 rounded object-cover cursor-pointer hover:opacity-80"
                   />
                 </button>

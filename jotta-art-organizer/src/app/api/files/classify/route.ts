@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAccessToken } from '@/lib/jotta/server'
-import { fetchThumbnail } from '@/lib/jotta/client'
+import { renderImage } from '@/lib/jotta/render'
 import { STYLE_VALUES, SUBJECT_VALUES, PALETTE_VALUES, FRAMED_VALUES, MOOD_VALUES } from '@/lib/visionClassify'
 
 const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001'
@@ -46,14 +46,17 @@ export async function POST(request: NextRequest) {
     }
     const pathSegments = body.path.split('/').filter(Boolean)
 
-    // A thumbnail is plenty for style/subject/palette/mood judgments and
-    // far cheaper (in tokens and $) than sending the full-resolution file.
-    const thumbRes = await fetchThumbnail(accessToken, username, body.device, body.mountpoint, pathSegments, 'medium')
-    if (!thumbRes.ok) {
-      return NextResponse.json({ error: `Failed to fetch thumbnail (${thumbRes.status}).` }, { status: 502 })
+    // This used to send Jottacloud's thumbnail, which is 30x30 no matter what
+    // size is asked for — far too small to judge style, subject or framing
+    // from, so every classification was made on a 30-pixel image. Render from
+    // the original instead: 768px is enough detail for these judgments while
+    // still costing a fraction of the full-resolution file in tokens.
+    const rendered = await renderImage(accessToken, username, body.device, body.mountpoint, pathSegments, 768)
+    if (!rendered) {
+      return NextResponse.json({ error: 'Failed to fetch image for classification.' }, { status: 502 })
     }
-    const mediaType = normalizeMediaType(thumbRes.headers.get('content-type'))
-    const base64 = Buffer.from(await thumbRes.arrayBuffer()).toString('base64')
+    const mediaType = normalizeMediaType(rendered.contentType)
+    const base64 = rendered.body.toString('base64')
 
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',

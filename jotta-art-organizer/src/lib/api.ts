@@ -34,10 +34,18 @@ export async function setup(personalLoginToken: string): Promise<{ username: str
 
 export type MountpointRef = { device: string; mountpoint: string }
 
-export type ThumbnailSize = 'small' | 'medium' | 'large'
+// Jottacloud only stores a 30x30 thumbnail and ignores every size parameter
+// it documents (measured), so sizes are real pixel widths now: 30 is the
+// stored icon, anything larger is rendered from the original server-side.
+export const ICON_PX = 30
 
-export function thumbnailUrl(loc: MountpointRef, path: string, size: ThumbnailSize = 'small'): string {
-  const params = new URLSearchParams({ device: loc.device, mountpoint: loc.mountpoint, path, size })
+export function thumbnailUrl(loc: MountpointRef, path: string, px: number = ICON_PX): string {
+  const params = new URLSearchParams({
+    device: loc.device,
+    mountpoint: loc.mountpoint,
+    path,
+    px: String(px),
+  })
   return `/api/files/thumbnail?${params.toString()}`
 }
 

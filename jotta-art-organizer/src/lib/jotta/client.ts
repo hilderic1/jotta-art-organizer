@@ -215,18 +215,19 @@ export async function createFolder(
   return parseFolderXml(xml, path)
 }
 
-// Thumbnail sizes Jottacloud supports: small, medium, large
-export type ThumbnailSize = 'small' | 'medium' | 'large'
-
+// Returns Jottacloud's stored thumbnail, which is always 30x30. There is no
+// size parameter to pass: ts=WS|WM|WL|WXL, size=small|medium|large, width=,
+// and no parameter at all were measured against the same file and every one
+// returned the identical 1001-byte image. Callers wanting anything larger go
+// through renderImage, which resizes the original.
 export async function fetchThumbnail(
   accessToken: string,
   username: string,
   device: string,
   mountpoint: string,
-  path: string[],
-  size: ThumbnailSize = 'small'
+  path: string[]
 ): Promise<Response> {
-  const url = `${jfsUrl(username, device, mountpoint, path)}?mode=thumb&size=${size}`
+  const url = `${jfsUrl(username, device, mountpoint, path)}?mode=thumb`
   return fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
 }
 

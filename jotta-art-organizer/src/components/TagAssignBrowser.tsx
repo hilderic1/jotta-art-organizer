@@ -275,7 +275,7 @@ export function TagAssignBrowser({
                     onClick={() => openEditor(f)}
                   >
                     <div className="relative">
-                      <Thumbnail loc={location} path={f.path} alt={f.name} size="medium" className="h-20 w-20 rounded object-cover" />
+                      <Thumbnail loc={location} path={f.path} alt={f.name} px={256} className="h-20 w-20 rounded object-cover" />
                       {hasMetadata && (
                         <span
                           title="Has Google Photos metadata"
