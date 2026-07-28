@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
 import { getSessionStatus, setMetadataLocation, type SessionStatus, type MountpointRef, type JottaEntry } from '@/lib/api'
 import { loadMetadata, saveArtworkChanges, ensureCategoriesForTags, type MetadataStore, type Category, type ArtworkTags } from '@/lib/metadata'
@@ -22,12 +22,16 @@ export default function TagsPage() {
   const [mode, setMode] = useState<Mode>('assign')
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(false)
   const [selectedBrowseLocation, setSelectedBrowseLocation] = useState<MountpointRef & { path?: string } | null>(null)
+  const resetRef = useRef(false)
 
-
-  useEffect(() => {
-    // Always start fresh: clear directory selection and metadata when entering Tags page
+  // Force reset on mount - before anything else renders
+  if (!resetRef.current) {
     setSelectedBrowseLocation(null)
     setStore(null)
+    resetRef.current = true
+  }
+
+  useEffect(() => {
     getSessionStatus().then(setSession)
   }, [])
 
