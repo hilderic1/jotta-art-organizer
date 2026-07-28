@@ -200,7 +200,7 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
           <p className="text-sm text-zinc-500">
             {matching.length} match{matching.length === 1 ? '' : 'es'}
           </p>
-          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <ul className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-6">
             {matching.map((a) => (
               <li key={a.md5}>
                 <button onClick={() => setViewingImage({ loc: { device: a.device, mountpoint: a.mountpoint }, path: a.path })}>
@@ -209,7 +209,7 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
                     path={a.path}
                     alt={a.path}
                     size="WL"
-                    className="h-40 w-full rounded object-cover cursor-pointer hover:opacity-80"
+                    className="aspect-square w-full rounded object-cover cursor-pointer hover:opacity-80"
                   />
                 </button>
                 <p className="mt-1 truncate text-xs text-zinc-500">{a.path.split('/').pop()}</p>
