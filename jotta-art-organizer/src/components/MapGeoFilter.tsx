@@ -113,7 +113,6 @@ export function MapGeoFilter({
                 stroke={true}
                 weight={isSelected ? 2 : 1}
                 color={isSelected ? '#4338ca' : '#6b7280'}
-                onClick={() => togglePoint(point.value)}
                 eventHandlers={{ click: () => togglePoint(point.value) }}
               >
                 <Popup>{point.value}</Popup>
