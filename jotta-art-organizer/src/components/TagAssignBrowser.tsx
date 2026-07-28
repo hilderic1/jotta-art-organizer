@@ -410,10 +410,12 @@ export function TagAssignBrowser({
               <p className="text-sm text-zinc-500">No categories defined yet — add some in the Categories tab first.</p>
             )}
             <div className="flex flex-col gap-3">
-              {effectiveCategories.map((category) => {
-                const activeValues = pendingTags[category.id] ?? []
-                const isLarge = category.values.length > LARGE_CATEGORY_THRESHOLD
-                return (
+              {effectiveCategories
+                .filter((cat) => cat.values.length > 0)
+                .map((category) => {
+                  const activeValues = pendingTags[category.id] ?? []
+                  const isLarge = category.values.length > LARGE_CATEGORY_THRESHOLD
+                  return (
                   <div key={category.id}>
                     <p className="mb-1 text-xs font-medium text-zinc-500">{category.name}</p>
                     {isLarge ? (

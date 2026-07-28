@@ -100,13 +100,15 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
       )}
 
       <div className="flex flex-col gap-3">
-        {categories.map((category) => {
-          const type = getCategoryType(category.id)
-          const isHighCard = isHighCardinality(category)
-          const isExpanded = expandedCategories.has(category.id)
-          const categorySelected = Array.from(selected).filter((k) => k.startsWith(`${category.id}:`))
+        {categories
+          .filter((cat) => cat.values.length > 0)
+          .map((category) => {
+            const type = getCategoryType(category.id)
+            const isHighCard = isHighCardinality(category)
+            const isExpanded = expandedCategories.has(category.id)
+            const categorySelected = Array.from(selected).filter((k) => k.startsWith(`${category.id}:`))
 
-          return (
+            return (
             <div key={category.id}>
               <div className="flex items-center justify-between mb-1">
                 <p className="text-xs font-medium text-zinc-500">{category.name}</p>
