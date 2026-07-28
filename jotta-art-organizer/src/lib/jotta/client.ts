@@ -226,7 +226,7 @@ export async function fetchThumbnail(
   path: string[],
   size: ThumbnailSize = 'WS'
 ): Promise<Response> {
-  const url = `${jfsUrl(username, device, mountpoint, path)}?mode=thumb&ts=${size}`
+  const url = `${jfsUrl(username, device, mountpoint, path)}?mode=thumb&width=512&height=512`
   return fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
 }
 
