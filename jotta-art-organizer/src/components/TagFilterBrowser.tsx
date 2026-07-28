@@ -4,12 +4,16 @@ import { useMemo, useState } from 'react'
 import { viewUrl, type MountpointRef } from '@/lib/api'
 import { Thumbnail } from './Thumbnail'
 import { ImageViewer } from './ImageViewer'
+import { DateRangeFilter } from './DateRangeFilter'
+import { GeoFilter } from './GeoFilter'
 import type { Category, ArtworkTags } from '@/lib/metadata'
+import { getCategoryType, isHighCardinality } from '@/lib/categoryTypes'
 
 export function TagFilterBrowser({ categories, artworks }: { categories: Category[]; artworks: ArtworkTags[] }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [mode, setMode] = useState<'all' | 'any'>('all')
   const [viewingImage, setViewingImage] = useState<{ loc: MountpointRef; path: string } | null>(null)
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set())
 
   function toggle(categoryId: string, value: string) {
     const key = `${categoryId}:${value}`
@@ -17,6 +21,30 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
       else next.add(key)
+      return next
+    })
+  }
+
+  function toggleCategoryExpanded(categoryId: string) {
+    setExpandedCategories((prev) => {
+      const next = new Set(prev)
+      if (next.has(categoryId)) next.delete(categoryId)
+      else next.add(categoryId)
+      return next
+    })
+  }
+
+  function handleSpecialFilterChange(categoryId: string, newSelection: Set<string>) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      // Remove all previous selections for this category
+      Array.from(prev).forEach((key) => {
+        if (key.startsWith(`${categoryId}:`)) next.delete(key)
+      })
+      // Add new selections
+      newSelection.forEach((value) => {
+        next.add(`${categoryId}:${value}`)
+      })
       return next
     })
   }
@@ -40,28 +68,78 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
       )}
 
       <div className="flex flex-col gap-3">
-        {categories.map((category) => (
-          <div key={category.id}>
-            <p className="mb-1 text-xs font-medium text-zinc-500">{category.name}</p>
-            <div className="flex flex-wrap gap-2">
-              {category.values.map((value) => {
-                const active = selected.has(`${category.id}:${value}`)
-                return (
+        {categories.map((category) => {
+          const type = getCategoryType(category.id)
+          const isHighCard = isHighCardinality(category)
+          const isExpanded = expandedCategories.has(category.id)
+          const categorySelected = Array.from(selected).filter((k) => k.startsWith(`${category.id}:`))
+
+          return (
+            <div key={category.id}>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs font-medium text-zinc-500">{category.name}</p>
+                {isHighCard && (
                   <button
-                    key={value}
-                    onClick={() => toggle(category.id, value)}
-                    className={`rounded-full px-3 py-1 text-xs ${
-                      active ? 'bg-indigo-600 text-white' : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
-                    }`}
+                    onClick={() => toggleCategoryExpanded(category.id)}
+                    className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
                   >
-                    {value}
+                    {isExpanded ? '▼' : '▶'} {categorySelected.length > 0 ? `(${categorySelected.length})` : ''}
                   </button>
-                )
-              })}
-              {category.values.length === 0 && <span className="text-xs text-zinc-400">No values defined.</span>}
+                )}
+              </div>
+
+              {(!isHighCard || isExpanded) && (
+                <>
+                  {type === 'date' && (
+                    <DateRangeFilter
+                      categoryId={category.id}
+                      values={category.values}
+                      onSelectionChange={(selected) => handleSpecialFilterChange(category.id, selected)}
+                    />
+                  )}
+
+                  {type === 'geo' && (
+                    <GeoFilter
+                      categoryId={category.id}
+                      values={category.values}
+                      onSelectionChange={(selected) => handleSpecialFilterChange(category.id, selected)}
+                    />
+                  )}
+
+                  {type === 'regular' && (
+                    <div className="flex flex-wrap gap-2">
+                      {category.values.map((value) => {
+                        const active = selected.has(`${category.id}:${value}`)
+                        return (
+                          <button
+                            key={value}
+                            onClick={() => toggle(category.id, value)}
+                            className={`rounded-full px-3 py-1 text-xs ${
+                              active
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                            }`}
+                          >
+                            {value}
+                          </button>
+                        )
+                      })}
+                      {category.values.length === 0 && <span className="text-xs text-zinc-400">No values defined.</span>}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {isHighCard && !isExpanded && (
+                <p className="text-xs text-zinc-400">
+                  {categorySelected.length === 0
+                    ? `Click to expand (${category.values.length} values)`
+                    : `Showing ${categorySelected.length} selected`}
+                </p>
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {selected.size > 0 && (
