@@ -209,7 +209,7 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
                     path={a.path}
                     alt={a.path}
                     size="WM"
-                    className="h-8 w-8 rounded object-cover cursor-pointer hover:opacity-80"
+                    className="h-16 w-16 rounded object-cover cursor-pointer hover:opacity-80"
                   />
                 </button>
                 <p className="mt-1 truncate text-xs text-zinc-500">{a.path.split('/').pop()}</p>
