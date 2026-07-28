@@ -421,7 +421,14 @@ export function TagAssignBrowser({
                 .filter((cat) => cat.values.length > 0)
                 .map((category) => {
                   const activeValues = pendingTags[category.id] ?? []
-                  const isLarge = category.values.length > LARGE_CATEGORY_THRESHOLD
+                  // Categories with a fixed closed list always show the full
+                  // picker, however many values they hold. The threshold is
+                  // there for open-ended categories like People or Year that
+                  // gain a value per photo — applying it to a fixed list of
+                  // ten just replaces the buttons with a box you'd have to
+                  // type an exact name into.
+                  const isLarge =
+                    category.values.length > LARGE_CATEGORY_THRESHOLD && !KNOWN_CLASSIFICATION_VALUES[category.id]
                   return (
                   <div key={category.id}>
                     <p className="mb-1 text-xs font-medium text-zinc-500">{category.name}</p>
