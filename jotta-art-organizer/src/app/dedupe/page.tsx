@@ -730,7 +730,15 @@ export default function DedupePage() {
                           checked={toDelete.has(entry.path)}
                           onChange={() => toggle(entry.path)}
                         />
-                        {location && <Thumbnail loc={location} path={entry.path} alt={entry.name} />}
+                        {location && (
+                          <Thumbnail
+                            loc={location}
+                            path={entry.path}
+                            alt={entry.name}
+                            size="WM"
+                            className="h-16 w-16 rounded object-cover shrink-0"
+                          />
+                        )}
                         <span className={toDelete.has(entry.path) ? 'text-red-600 line-through dark:text-red-400' : ''}>
                           {recursive && recursiveFiles ? entry.path : entry.name}
                         </span>
