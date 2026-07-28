@@ -27,17 +27,33 @@ export const SUGGESTED_STYLE_CATEGORY_ID = 'suggestedStyle'
 // work. The definitions travel with the values: they're what the model is
 // given to choose against, and a bare label like "Conceptual Digital Art"
 // is far too open to interpretation on its own.
+// Labels are deliberately one word where possible. Every style here is
+// digital art, so spelling that out in each name buried the distinguishing
+// word at the end of a mouthful and made three of them unreadable on one
+// piece. The definitions carry the full meaning, and they're what the model
+// classifies against, so the short labels cost nothing in accuracy.
 export const STYLE_DEFINITIONS: Record<string, string> = {
-  'Abstract Digital Art': 'built on colour, form, rhythm and composition rather than realistic subjects',
-  'Intuitive Digital Art': 'made without a predetermined plan, with instinct and emotion guiding the process',
-  'Generative Art': 'produced partly or entirely by algorithms or code',
-  'Digital Expressionism': 'emphasises emotion, energy and personal experience over realism',
-  'Surreal Digital Art': 'dreamlike, symbolic, or impossible worlds',
-  'Geometric/Constructivist Digital Art': 'built around mathematical or architectural structure',
-  'Mixed-Media Digital Art': 'combines painting, photography, drawing, texture and digital technique',
-  'Conceptual Digital Art': 'the underlying idea matters as much as the visual result',
-  'Visionary/Cosmic Art': 'explores space, consciousness, spirituality, or the universe',
+  Abstract: 'built on colour, form, rhythm and composition rather than realistic subjects',
+  Intuitive: 'made without a predetermined plan, with instinct and emotion guiding the process',
+  Generative: 'produced partly or entirely by algorithms or code',
+  Expressionist: 'emphasises emotion, energy and personal experience over realism',
+  Surreal: 'dreamlike, symbolic, or impossible worlds',
+  Geometric: 'built around mathematical or architectural structure; constructivist',
+  'Mixed-Media': 'combines painting, photography, drawing, texture and digital technique',
+  Conceptual: 'the underlying idea matters as much as the visual result',
+  'Visionary/Cosmic': 'explores space, consciousness, spirituality, or the universe',
   Other: 'genuinely none of the above — e.g. a photograph or a non-artwork image',
+}
+
+// How many values each category may hold. The classifier is held to these by
+// its schema; the editor enforces the same limits so a hand edit can't drift
+// past what the vocabulary is designed for.
+export const CATEGORY_VALUE_LIMITS: Record<string, number> = {
+  [STYLE_CATEGORY_ID]: 3,
+  [MOOD_CATEGORY_ID]: 2,
+  [SUBJECT_CATEGORY_ID]: 1,
+  [PALETTE_CATEGORY_ID]: 1,
+  [FRAMED_CATEGORY_ID]: 1,
 }
 
 export const STYLE_VALUES = Object.keys(STYLE_DEFINITIONS)

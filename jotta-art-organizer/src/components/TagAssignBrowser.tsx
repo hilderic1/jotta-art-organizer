@@ -17,6 +17,7 @@ import {
   classifyArtwork,
   tagsFromClassification,
   KNOWN_CLASSIFICATION_VALUES,
+  CATEGORY_VALUE_LIMITS,
   type ArtworkClassification,
 } from '@/lib/visionClassify'
 
@@ -151,8 +152,15 @@ export function TagAssignBrowser({
   function toggleValue(categoryId: string, value: string) {
     setPendingTags((prev) => {
       const current = prev[categoryId] ?? []
-      const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value]
-      return { ...prev, [categoryId]: next }
+      if (current.includes(value)) return { ...prev, [categoryId]: current.filter((v) => v !== value) }
+
+      // At the limit, picking another drops the oldest rather than refusing
+      // the click. For single-value categories that makes selection behave
+      // like a radio group, which is what Subject/Palette/Framed want, and
+      // for Style it beats hunting for which one to clear first.
+      const limit = CATEGORY_VALUE_LIMITS[categoryId]
+      const kept = limit && current.length >= limit ? current.slice(current.length - limit + 1) : current
+      return { ...prev, [categoryId]: [...kept, value] }
     })
   }
 
@@ -416,6 +424,23 @@ export function TagAssignBrowser({
             {effectiveCategories.length === 0 && (
               <p className="text-sm text-zinc-500">No categories defined yet — add some in the Categories tab first.</p>
             )}
+            {(() => {
+              const total = Object.values(pendingTags).reduce((n, values) => n + (values?.length ?? 0), 0)
+              if (total === 0) return null
+              return (
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs text-zinc-500">
+                    {total} tag{total === 1 ? '' : 's'} on this file
+                  </span>
+                  <button
+                    onClick={() => setPendingTags({})}
+                    className="text-xs text-red-600 hover:underline dark:text-red-400"
+                  >
+                    Clear all
+                  </button>
+                </div>
+              )
+            })()}
             <div className="flex flex-col gap-3">
               {effectiveCategories
                 .filter((cat) => cat.values.length > 0)
@@ -431,7 +456,14 @@ export function TagAssignBrowser({
                     category.values.length > LARGE_CATEGORY_THRESHOLD && !KNOWN_CLASSIFICATION_VALUES[category.id]
                   return (
                   <div key={category.id}>
-                    <p className="mb-1 text-xs font-medium text-zinc-500">{category.name}</p>
+                    <p className="mb-1 text-xs font-medium text-zinc-500">
+                      {category.name}
+                      {(CATEGORY_VALUE_LIMITS[category.id] ?? 0) > 1 && (
+                        <span className="ml-1 font-normal text-zinc-400">
+                          (up to {CATEGORY_VALUE_LIMITS[category.id]})
+                        </span>
+                      )}
+                    </p>
                     {isLarge ? (
                       <div className="flex flex-col gap-2">
                         <div className="flex flex-wrap gap-2">
