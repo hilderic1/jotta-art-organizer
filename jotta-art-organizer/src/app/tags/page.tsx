@@ -221,14 +221,21 @@ export default function TagsPage() {
 
   // Step 3 — folder chosen and loaded: every sub-task works off it, no more picking.
   // Only categories that actually have values in this folder are worth showing.
-  const usedTagValues = new Set<string>()
+  // Per-category, so a value used under "Year" can't keep an unrelated
+  // category like "Creation Time" alive just because the string matches.
+  const usedByCategory = new Map<string, Set<string>>()
   for (const artwork of store.artworks) {
-    for (const values of Object.values(artwork.tags)) {
-      for (const value of values) usedTagValues.add(value)
+    for (const [categoryId, values] of Object.entries(artwork.tags)) {
+      let used = usedByCategory.get(categoryId)
+      if (!used) {
+        used = new Set<string>()
+        usedByCategory.set(categoryId, used)
+      }
+      for (const value of values) used.add(value)
     }
   }
   const filteredCategories = store.categories
-    .map((cat) => ({ ...cat, values: cat.values.filter((v) => usedTagValues.has(v)) }))
+    .map((cat) => ({ ...cat, values: cat.values.filter((v) => usedByCategory.get(cat.id)?.has(v)) }))
     .filter((cat) => cat.values.length > 0)
 
   return (
