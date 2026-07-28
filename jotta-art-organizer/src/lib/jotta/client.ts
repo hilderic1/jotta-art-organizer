@@ -227,6 +227,7 @@ export async function fetchThumbnail(
   size: ThumbnailSize = 'WS'
 ): Promise<Response> {
   const url = `${jfsUrl(username, device, mountpoint, path)}?mode=thumb&width=512&height=512`
+  console.log('[Jottacloud API] Thumbnail request:', url)
   return fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
 }
 
