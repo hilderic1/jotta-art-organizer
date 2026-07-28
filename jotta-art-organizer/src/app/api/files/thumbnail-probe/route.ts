@@ -2,22 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAccessToken } from '@/lib/jotta/server'
 import { listFolder } from '@/lib/jotta/client'
 
-// Temporary diagnostic: asks Jottacloud for the same file's thumbnail once
-// per candidate query-string form and reports what actually comes back, so
-// the question "which parameter does JFS honour, and how big does it go?"
-// is answered by measurement instead of assumption. Safe to delete.
+// Temporary diagnostic. Round 1 proved every size parameter on the JFS host
+// returns the identical 1001-byte 30x30 image, so JFS stores exactly one
+// thumbnail. Round 2 looks elsewhere: other JFS modes, and the newer
+// api.jottacloud.com host (the same bearer token already works there — it's
+// what upload allocation uses). Endpoint paths on that host are guesses, so
+// 404s are expected and are themselves the answer. Safe to delete.
 
-const VARIANTS: { label: string; query: string }[] = [
-  { label: '(no size param)', query: '' },
-  { label: 'ts=WS', query: '&ts=WS' },
-  { label: 'ts=WM', query: '&ts=WM' },
-  { label: 'ts=WL', query: '&ts=WL' },
-  { label: 'ts=WXL', query: '&ts=WXL' },
-  { label: 'size=small', query: '&size=small' },
-  { label: 'size=medium', query: '&size=medium' },
-  { label: 'size=large', query: '&size=large' },
-  { label: 'width=512', query: '&width=512' },
-]
+type Candidate = { label: string; url: string; range?: string; accept?: string }
 
 function jpegSize(b: Uint8Array): { width: number; height: number } | null {
   if (b[0] !== 0xff || b[1] !== 0xd8) return null
@@ -28,7 +20,6 @@ function jpegSize(b: Uint8Array): { width: number; height: number } | null {
       continue
     }
     const marker = b[i + 1]
-    // Start-of-frame markers carry the real dimensions; C4/C8/CC are tables.
     if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
       return { height: (b[i + 5] << 8) | b[i + 6], width: (b[i + 7] << 8) | b[i + 8] }
     }
@@ -55,38 +46,64 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'device and mountpoint are required.' }, { status: 400 })
     }
 
-    // Either point at one file, or name a folder and let it pick the first image.
-    let pathSegments = (q.get('path') ?? '').split('/').filter(Boolean)
-    if (pathSegments.length === 0) {
+    let segments = (q.get('path') ?? '').split('/').filter(Boolean)
+    let md5 = q.get('md5') ?? ''
+    if (segments.length === 0) {
       const folder = (q.get('folder') ?? '').split('/').filter(Boolean)
       const listing = await listFolder(accessToken, username, device, mountpoint, folder)
       const image = listing.files.find((f) => /\.(jpe?g|png|gif|webp|heic)$/i.test(f.name))
       if (!image) {
-        return NextResponse.json(
-          { error: 'No image found directly in that folder — pass ?path= to a specific file.' },
-          { status: 404 }
-        )
+        return NextResponse.json({ error: 'No image directly in that folder — pass ?path=' }, { status: 404 })
       }
-      pathSegments = image.path.split('/').filter(Boolean)
+      segments = image.path.split('/').filter(Boolean)
+      md5 = image.md5 ?? ''
     }
 
-    const base = `https://jfs.jottacloud.com/jfs/${[username, device, mountpoint, ...pathSegments]
-      .map((s) => encodeURIComponent(s))
-      .join('/')}`
+    const enc = (parts: string[]) => parts.map((s) => encodeURIComponent(s)).join('/')
+    const jfs = `https://jfs.jottacloud.com/jfs/${enc([username, device, mountpoint, ...segments])}`
+    const rel = `/${enc([device, mountpoint, ...segments])}`
+    const api = 'https://api.jottacloud.com'
+
+    const candidates: Candidate[] = [
+      // Baseline + the original, to anchor the comparison.
+      { label: 'JFS ?mode=thumb (known 30x30)', url: `${jfs}?mode=thumb` },
+      { label: 'JFS ?mode=bin (the original file, first 256KB)', url: `${jfs}?mode=bin`, range: 'bytes=0-262143' },
+      // Other JFS modes we never tried.
+      { label: 'JFS ?mode=preview', url: `${jfs}?mode=preview` },
+      { label: 'JFS ?mode=thumb&ts=256 (numeric)', url: `${jfs}?mode=thumb&ts=256` },
+      { label: 'JFS ?mode=thumb&size=WL', url: `${jfs}?mode=thumb&size=WL` },
+      // Newer host — path-addressed.
+      { label: 'files/v1 thumbnail?path=', url: `${api}/files/v1/thumbnail?path=${encodeURIComponent(rel)}&size=large` },
+      { label: 'files/v1 thumb?path=', url: `${api}/files/v1/thumb?path=${encodeURIComponent(rel)}&size=large` },
+      { label: 'files/v1 fetch?path=', url: `${api}/files/v1/fetch?path=${encodeURIComponent(rel)}&size=large` },
+      // Newer host — content-hash addressed (how photo galleries usually work).
+      ...(md5
+        ? [
+            { label: 'photos/v1 thumb by md5', url: `${api}/photos/v1/thumb/${md5}?size=large` },
+            { label: 'photos/v1 photo/{md5}/thumbnail', url: `${api}/photos/v1/photo/${md5}/thumbnail?size=large` },
+            { label: 'files/v1 thumbnail by md5', url: `${api}/files/v1/thumbnail/${md5}?size=large` },
+          ]
+        : []),
+    ]
 
     const results = await Promise.all(
-      VARIANTS.map(async ({ label, query }) => {
+      candidates.map(async ({ label, url, range, accept }) => {
         try {
-          const res = await fetch(`${base}?mode=thumb${query}`, {
-            headers: { Authorization: `Bearer ${accessToken}` },
+          const res = await fetch(url, {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              Accept: accept ?? 'image/*',
+              ...(range ? { Range: range } : {}),
+            },
           })
-          if (!res.ok) return { variant: label, status: res.status }
+          const contentType = res.headers.get('content-type')
+          if (!res.ok) return { variant: label, status: res.status, contentType }
           const bytes = new Uint8Array(await res.arrayBuffer())
           const dims = jpegSize(bytes) ?? pngSize(bytes)
           return {
             variant: label,
             status: res.status,
-            contentType: res.headers.get('content-type'),
+            contentType,
             bytes: bytes.byteLength,
             dimensions: dims ? `${dims.width}x${dims.height}` : 'unknown',
           }
@@ -96,7 +113,7 @@ export async function GET(request: NextRequest) {
       })
     )
 
-    return NextResponse.json({ file: pathSegments.join('/'), results }, { status: 200 })
+    return NextResponse.json({ file: segments.join('/'), md5: md5 || null, results }, { status: 200 })
   } catch (err) {
     if (err instanceof Error && err.message === 'NOT_AUTHENTICATED') {
       return NextResponse.json({ error: 'Not connected to Jottacloud yet.' }, { status: 401 })
