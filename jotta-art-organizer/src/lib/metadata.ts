@@ -1,4 +1,4 @@
-import type { MountpointRef } from '@/lib/api'
+import { listFolder, type MountpointRef } from '@/lib/api'
 import { readJsonFile, writeJsonFile } from '@/lib/jsonStore'
 import { KNOWN_CLASSIFICATION_VALUES } from '@/lib/visionClassify'
 
@@ -129,7 +129,14 @@ async function saveShard(loc: MountpointRef, shardKey: string, records: ArtworkT
 // rather than on every edit, so it's fine for it to cost more than a single
 // request the old single-file design didn't need.
 async function loadAllArtworkShards(loc: MountpointRef, opts?: { concurrency?: number }): Promise<ArtworkTags[]> {
-  const keys = await loadShardIndex(loc)
+  return loadShardsByKeys(loc, await loadShardIndex(loc), opts)
+}
+
+async function loadShardsByKeys(
+  loc: MountpointRef,
+  keys: string[],
+  opts?: { concurrency?: number }
+): Promise<ArtworkTags[]> {
   if (keys.length === 0) return []
   const concurrency = opts?.concurrency ?? 8
   const results: ArtworkTags[][] = new Array(keys.length)
@@ -185,6 +192,96 @@ export async function loadMetadata(loc: MountpointRef): Promise<MetadataStore> {
   const artworks = legacy.artworks ?? []
   await migrateToShardedFormat(loc, categories, artworks)
   return { categories, artworks }
+}
+
+// Reading every shard costs one request per shard — a few hundred on a large
+// library — but the Tags page only ever needs the records for the one folder
+// being worked on. Listing that folder is cheap when it's small, and its
+// files' md5s say exactly which shards could hold their records, usually a
+// handful. A big tree would cost more to list than it saves, so the walk
+// gives up early and the caller falls back to reading every shard.
+const FOLDER_SCAN_BUDGET = 12
+const FILE_SCAN_BUDGET = 8000
+
+async function collectFolderMd5s(folder: MountpointRef & { path?: string }): Promise<Set<string> | null> {
+  const md5s = new Set<string>()
+  const queue: string[] = [folder.path?.trim() || '']
+  let visited = 0
+
+  while (queue.length > 0) {
+    const batch = queue.splice(0, 4)
+    const listings = await Promise.all(batch.map((p) => listFolder(folder, p)))
+    for (const listing of listings) {
+      visited++
+      for (const file of listing.files) {
+        if (file.md5) md5s.add(file.md5)
+      }
+      for (const sub of listing.folders) queue.push(sub.path)
+    }
+    if (visited + queue.length > FOLDER_SCAN_BUDGET) return null
+    if (md5s.size > FILE_SCAN_BUDGET) return null
+  }
+  return md5s
+}
+
+export type FolderMetadata = {
+  store: MetadataStore
+  shardsLoaded: number
+  shardsTotal: number
+  targeted: boolean
+}
+
+function isInFolder(record: ArtworkTags, folder: MountpointRef & { path?: string }): boolean {
+  if (record.device !== folder.device || record.mountpoint !== folder.mountpoint) return false
+  const path = folder.path?.trim()
+  if (!path) return true
+  return record.path === path || record.path.startsWith(`${path}/`)
+}
+
+// Tag data for one folder. The returned artworks are only that folder's, but
+// categories are always complete — saving rewrites categories.json wholesale,
+// so handing back a trimmed list would delete the rest on the next save.
+export async function loadMetadataForFolder(
+  metadataLoc: MountpointRef,
+  folder: MountpointRef & { path?: string }
+): Promise<FolderMetadata> {
+  const categoriesFile = await readJsonFile<{ categories: Category[] }>(
+    metadataLoc,
+    `${METADATA_FOLDER}/${CATEGORIES_FILENAME}`
+  )
+  // A store that hasn't been migrated yet still has to go through the full
+  // read-and-migrate path — see loadMetadata for why that can't be deferred.
+  if (!categoriesFile) {
+    const full = await loadMetadata(metadataLoc)
+    return {
+      store: { categories: full.categories, artworks: full.artworks.filter((a) => isInFolder(a, folder)) },
+      shardsLoaded: 0,
+      shardsTotal: 0,
+      targeted: false,
+    }
+  }
+
+  const index = await loadShardIndex(metadataLoc)
+  // A failed listing (permissions, a folder deleted mid-flight) is not worth
+  // failing the whole page over — fall back to reading everything.
+  const md5s = await collectFolderMd5s(folder).catch(() => null)
+
+  let keys = index
+  if (md5s) {
+    const wanted = new Set([...md5s].map(shardKeyFor))
+    keys = index.filter((k) => wanted.has(k))
+  }
+
+  const artworks = await loadShardsByKeys(metadataLoc, keys)
+  return {
+    store: {
+      categories: categoriesFile.categories ?? [],
+      artworks: artworks.filter((a) => isInFolder(a, folder)),
+    },
+    shardsLoaded: keys.length,
+    shardsTotal: index.length,
+    targeted: md5s !== null,
+  }
 }
 
 // Writes every existing record into its shard, then writes categories.json

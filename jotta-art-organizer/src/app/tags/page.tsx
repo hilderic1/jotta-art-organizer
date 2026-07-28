@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { getSessionStatus, setMetadataLocation, type SessionStatus, type MountpointRef, type JottaEntry } from '@/lib/api'
-import { loadMetadata, saveArtworkChanges, ensureCategoriesForTags, type MetadataStore, type Category, type ArtworkTags } from '@/lib/metadata'
+import { loadMetadataForFolder, saveArtworkChanges, ensureCategoriesForTags, type MetadataStore, type Category, type ArtworkTags } from '@/lib/metadata'
 import { LocationPicker } from '@/components/LocationPicker'
 import { CategoryManager } from '@/components/CategoryManager'
 import { TagAssignBrowser } from '@/components/TagAssignBrowser'
@@ -22,6 +22,7 @@ export default function TagsPage() {
   const [mode, setMode] = useState<Mode>('assign')
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(false)
   const [selectedBrowseLocation, setSelectedBrowseLocation] = useState<(MountpointRef & { path?: string }) | null>(null)
+  const [loadStats, setLoadStats] = useState<{ loaded: number; total: number } | null>(null)
 
   useEffect(() => {
     getSessionStatus().then(setSession)
@@ -32,19 +33,11 @@ export default function TagsPage() {
     let ignore = false
     setIsLoadingMetadata(true)
     setLoadError(null)
-    loadMetadata(session.metadataLocation)
-      .then((data) => {
+    loadMetadataForFolder(session.metadataLocation, selectedBrowseLocation)
+      .then((result) => {
         if (!ignore) {
-          // Filter artworks to only include selected directory
-          const filtered = data.artworks.filter((a) => {
-            if (a.device !== selectedBrowseLocation.device || a.mountpoint !== selectedBrowseLocation.mountpoint) return false
-            if (selectedBrowseLocation.path) {
-              const path = selectedBrowseLocation.path.trim()
-              return a.path === path || a.path.startsWith(path + '/')
-            }
-            return true
-          })
-          setStore({ ...data, artworks: filtered })
+          setStore(result.store)
+          setLoadStats({ loaded: result.shardsLoaded, total: result.shardsTotal })
           setIsLoadingMetadata(false)
         }
       })
@@ -63,12 +56,14 @@ export default function TagsPage() {
   // (the loading state) is what renders next rather than stale tags.
   function pickFolder(loc: MountpointRef & { path?: string }) {
     setStore(null)
+    setLoadStats(null)
     setLoadError(null)
     setSelectedBrowseLocation(loc)
   }
 
   function clearFolder() {
     setStore(null)
+    setLoadStats(null)
     setLoadError(null)
     setSelectedBrowseLocation(null)
   }
@@ -244,7 +239,11 @@ export default function TagsPage() {
 
       <div className="flex items-center justify-between gap-3 text-sm">
         <span className="truncate text-zinc-600 dark:text-zinc-400">
-          🗂 {folderLabel} <span className="text-xs text-zinc-400">({store.artworks.length} tagged)</span>
+          🗂 {folderLabel}{' '}
+          <span className="text-xs text-zinc-400">
+            ({store.artworks.length} tagged
+            {loadStats && loadStats.total > 0 && `; read ${loadStats.loaded} of ${loadStats.total} shards`})
+          </span>
         </span>
         <button onClick={clearFolder} className="shrink-0 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
           Change folder
@@ -283,9 +282,12 @@ export default function TagsPage() {
 
       {mode === 'categories' && <CategoryManager categories={store.categories} onChange={handleCategoriesChange} />}
 
+      {/* Assign gets every category, not just the ones already in use here —
+          otherwise a folder with nothing tagged yet shows no categories at
+          all and there's no way to apply a first tag. */}
       {mode === 'assign' && (
         <TagAssignBrowser
-          categories={filteredCategories}
+          categories={store.categories}
           artworks={store.artworks}
           onSave={handleSaveTags}
           initialLocation={selectedBrowseLocation}
