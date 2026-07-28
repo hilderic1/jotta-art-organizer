@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { getSessionStatus, setMetadataLocation, type SessionStatus, type MountpointRef, type JottaEntry } from '@/lib/api'
 import { loadMetadata, saveArtworkChanges, ensureCategoriesForTags, type MetadataStore, type Category, type ArtworkTags } from '@/lib/metadata'
@@ -21,15 +21,7 @@ export default function TagsPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [mode, setMode] = useState<Mode>('assign')
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(false)
-  const [selectedBrowseLocation, setSelectedBrowseLocation] = useState<MountpointRef & { path?: string } | null>(null)
-  const resetRef = useRef(false)
-
-  // Force reset on mount - before anything else renders
-  if (!resetRef.current) {
-    setSelectedBrowseLocation(null)
-    setStore(null)
-    resetRef.current = true
-  }
+  const [selectedBrowseLocation, setSelectedBrowseLocation] = useState<(MountpointRef & { path?: string }) | null>(null)
 
   useEffect(() => {
     getSessionStatus().then(setSession)
@@ -66,6 +58,20 @@ export default function TagsPage() {
       ignore = true
     }
   }, [session, selectedBrowseLocation])
+
+  // Picking a folder always discards the previous folder's data, so step 2
+  // (the loading state) is what renders next rather than stale tags.
+  function pickFolder(loc: MountpointRef & { path?: string }) {
+    setStore(null)
+    setLoadError(null)
+    setSelectedBrowseLocation(loc)
+  }
+
+  function clearFolder() {
+    setStore(null)
+    setLoadError(null)
+    setSelectedBrowseLocation(null)
+  }
 
   async function handleCategoriesChange(nextCategories: Category[]) {
     if (!store || !session?.authenticated || !session.metadataLocation) return
@@ -172,93 +178,122 @@ export default function TagsPage() {
     )
   }
 
+  const header = (
+    <div>
+      <h1 className="text-2xl font-semibold">Tags</h1>
+      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+        Classify artwork by characteristics (style, subject, mood, …) instead of folder location, then browse by any
+        combination of them.
+      </p>
+    </div>
+  )
+
+  // Step 1 — nothing is loaded until a folder has been chosen.
+  if (!selectedBrowseLocation) {
+    return (
+      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
+        {header}
+        <p className="text-sm text-zinc-500">Choose the folder you want to work on.</p>
+        <LocationPicker onSelect={pickFolder} />
+      </div>
+    )
+  }
+
+  const folderLabel = selectedBrowseLocation.path
+    ? `${selectedBrowseLocation.mountpoint}/${selectedBrowseLocation.path}`
+    : selectedBrowseLocation.mountpoint
+
+  // Step 2 — that folder's tag data is on its way.
+  if (!store) {
+    return (
+      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
+        {header}
+        <div className="flex items-center gap-2 text-sm text-zinc-500">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-indigo-600 dark:border-zinc-700 dark:border-t-indigo-500" />
+          Loading tag data for {folderLabel}…
+        </div>
+        <button onClick={clearFolder} className="self-start text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
+          ← Choose a different folder
+        </button>
+      </div>
+    )
+  }
+
+  // Step 3 — folder chosen and loaded: every sub-task works off it, no more picking.
+  // Only categories that actually have values in this folder are worth showing.
+  const usedTagValues = new Set<string>()
+  for (const artwork of store.artworks) {
+    for (const values of Object.values(artwork.tags)) {
+      for (const value of values) usedTagValues.add(value)
+    }
+  }
+  const filteredCategories = store.categories
+    .map((cat) => ({ ...cat, values: cat.values.filter((v) => usedTagValues.has(v)) }))
+    .filter((cat) => cat.values.length > 0)
+
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
-      <div>
-        <h1 className="text-2xl font-semibold">Tags</h1>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Classify artwork by characteristics (style, subject, mood, …) instead of folder location, then browse by any
-          combination of them.
-        </p>
+      {header}
+
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="truncate text-zinc-600 dark:text-zinc-400">
+          🗂 {folderLabel} <span className="text-xs text-zinc-400">({store.artworks.length} tagged)</span>
+        </span>
+        <button onClick={clearFolder} className="shrink-0 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
+          Change folder
+        </button>
       </div>
 
-      {/* Directory picker */}
-      {!store && <LocationPicker onSelect={setSelectedBrowseLocation} />}
-
-      {/* Mode tabs and content - only after directory selected and metadata loaded */}
-      {store && (
-        <div className="flex gap-2 border-b border-zinc-200 pb-2 dark:border-zinc-800">
-          {(
-            [
-              ['assign', 'Assign tags'],
-              ['browse', 'Browse by tag'],
-              ['batch', 'Batch import'],
-              ['classify', 'AI Classify'],
-              ['categories', 'Categories'],
-            ] as [Mode, string][]
-          ).map(([m, label]) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`rounded px-3 py-1.5 text-sm font-medium ${
-                mode === m ? 'bg-indigo-600 text-white' : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="flex gap-2 border-b border-zinc-200 pb-2 dark:border-zinc-800">
+        {(
+          [
+            ['assign', 'Assign tags'],
+            ['browse', 'Browse by tag'],
+            ['batch', 'Batch import'],
+            ['classify', 'AI Classify'],
+            ['categories', 'Categories'],
+          ] as [Mode, string][]
+        ).map(([m, label]) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={`rounded px-3 py-1.5 text-sm font-medium ${
+              mode === m ? 'bg-indigo-600 text-white' : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       {saveError && <p className="text-sm text-red-600 dark:text-red-400">{saveError}</p>}
 
-      {isLoadingMetadata && store && (
+      {isLoadingMetadata && (
         <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
           Refreshing tag data…
         </div>
       )}
 
-      {/* Content area - only shows after directory is picked and metadata loaded */}
-      {store && (() => {
-        // Find which tags are used in filtered artworks (already filtered in useEffect)
-        const usedTagValues = new Set<string>()
-        for (const artwork of store.artworks) {
-          for (const values of Object.values(artwork.tags)) {
-            for (const value of values) {
-              usedTagValues.add(value)
-            }
-          }
-        }
+      {mode === 'categories' && <CategoryManager categories={store.categories} onChange={handleCategoriesChange} />}
 
-        // Filter categories to only include those with used values, skip empty categories
-        const filteredCategories = store.categories
-          .map((cat) => ({
-            ...cat,
-            values: cat.values.filter((v) => usedTagValues.has(v)),
-          }))
-          .filter((cat) => cat.values.length > 0)
+      {mode === 'assign' && (
+        <TagAssignBrowser
+          categories={filteredCategories}
+          artworks={store.artworks}
+          onSave={handleSaveTags}
+          initialLocation={selectedBrowseLocation}
+        />
+      )}
 
-        return (
-          <>
-            {mode === 'categories' && <CategoryManager categories={store.categories} onChange={handleCategoriesChange} />}
+      {mode === 'browse' && <TagFilterBrowser categories={filteredCategories} artworks={store.artworks} />}
 
-            {mode === 'assign' && (
-              <TagAssignBrowser
-                categories={filteredCategories}
-                artworks={store.artworks}
-                onSave={handleSaveTags}
-                initialLocation={selectedBrowseLocation}
-              />
-            )}
+      {mode === 'batch' && (
+        <BatchTagBrowser store={store} onStoreUpdated={setStore} initialLocation={selectedBrowseLocation} />
+      )}
 
-            {mode === 'browse' && <TagFilterBrowser categories={filteredCategories} artworks={store.artworks} />}
-
-            {mode === 'batch' && <BatchTagBrowser store={store} onStoreUpdated={setStore} />}
-
-            {mode === 'classify' && <BatchVisionClassifyBrowser store={store} onStoreUpdated={setStore} />}
-          </>
-        )
-      })()}
+      {mode === 'classify' && (
+        <BatchVisionClassifyBrowser store={store} onStoreUpdated={setStore} initialLocation={selectedBrowseLocation} />
+      )}
     </div>
   )
 }

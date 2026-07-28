@@ -18,14 +18,20 @@ function segments(path: string): string[] {
 export function BatchVisionClassifyBrowser({
   store,
   onStoreUpdated,
+  initialLocation,
 }: {
   store: MetadataStore
   onStoreUpdated: (next: MetadataStore) => void
+  initialLocation?: (MountpointRef & { path?: string }) | null
 }) {
-  const [location, setLocation] = useState<MountpointRef | null>(null)
+  // Seeded from the folder already chosen on the Tags page, so this view
+  // doesn't ask for a location a second time.
+  const [location, setLocation] = useState<MountpointRef | null>(
+    initialLocation ? { device: initialLocation.device, mountpoint: initialLocation.mountpoint } : null
+  )
   const [mountpoints, setMountpoints] = useState<MountpointRef[] | null>(null)
   const [mountpointsError, setMountpointsError] = useState<string | null>(null)
-  const [path, setPath] = useState('')
+  const [path, setPath] = useState(initialLocation?.path ?? '')
   const [listing, setListing] = useState<JottaFolderListing | null>(null)
   const [listingError, setListingError] = useState<string | null>(null)
 
