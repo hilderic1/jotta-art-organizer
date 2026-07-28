@@ -208,8 +208,8 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
                     loc={{ device: a.device, mountpoint: a.mountpoint }}
                     path={a.path}
                     alt={a.path}
-                    size="WM"
-                    className="h-28 w-full rounded object-cover cursor-pointer hover:opacity-80"
+                    size="WL"
+                    className="h-40 w-full rounded object-cover cursor-pointer hover:opacity-80"
                   />
                 </button>
                 <p className="mt-1 truncate text-xs text-zinc-500">{a.path.split('/').pop()}</p>
