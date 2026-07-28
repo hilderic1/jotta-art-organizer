@@ -19,9 +19,11 @@ const CLASSIFY_TOOL = {
     type: 'object',
     properties: {
       style: {
-        type: 'string',
-        enum: STYLE_VALUES,
-        description: `The dominant style. Several often apply at once; pick the one that best characterises the piece, and reach for "Other" only if none genuinely fit. Definitions — ${Object.entries(
+        type: 'array',
+        items: { type: 'string', enum: STYLE_VALUES },
+        minItems: 1,
+        maxItems: 3,
+        description: `Every style that genuinely applies, most characteristic first — these overlap by nature, so one piece is commonly two or three of them. Include a style only if it is actually evident; three weak matches are worse than one accurate one. Use "Other" alone, never alongside another value, and only if none of the rest fit. Definitions — ${Object.entries(
           STYLE_DEFINITIONS
         )
           .map(([value, meaning]) => `${value}: ${meaning}`)
@@ -123,7 +125,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No classification returned.' }, { status: 502 })
     }
 
-    return NextResponse.json(toolUse.input)
+    // The enum is a constraint on the model, not a guarantee, and these
+    // values become stored tags — so drop anything unrecognised rather than
+    // letting an invented style into the library.
+    const input = toolUse.input as Record<string, unknown>
+    const raw = Array.isArray(input.style) ? input.style : [input.style]
+    let style = [...new Set(raw.filter((s): s is string => typeof s === 'string' && STYLE_VALUES.includes(s)))].slice(
+      0,
+      3
+    )
+    // "Other" means nothing else fit, so it can't sit beside a real style.
+    if (style.length > 1) style = style.filter((s) => s !== 'Other')
+    if (style.length === 0) style = ['Other']
+
+    return NextResponse.json({ ...input, style })
   } catch (err) {
     if (err instanceof Error && err.message === 'NOT_AUTHENTICATED') {
       return NextResponse.json({ error: 'Not connected to Jottacloud yet.' }, { status: 401 })

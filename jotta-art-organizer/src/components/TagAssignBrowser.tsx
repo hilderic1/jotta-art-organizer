@@ -402,7 +402,7 @@ export function TagAssignBrowser({
               {classifyError && <p className="mt-1 text-red-600 dark:text-red-400">{classifyError}</p>}
               {classifyResult && (
                 <p className="mt-1 text-zinc-600 dark:text-zinc-400">
-                  🎨 {classifyResult.style} · {classifyResult.subject} · {classifyResult.palette} ·{' '}
+                  🎨 {classifyResult.style.join(' + ')} · {classifyResult.subject} · {classifyResult.palette} ·{' '}
                   {classifyResult.framed === 'Yes' ? 'Framed' : 'Unframed'} · {classifyResult.mood}
                 </p>
               )}
