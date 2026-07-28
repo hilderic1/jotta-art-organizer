@@ -215,8 +215,8 @@ export async function createFolder(
   return parseFolderXml(xml, path)
 }
 
-// Thumbnail sizes Jottacloud supports: WS (small) .. WXL (extra large).
-export type ThumbnailSize = 'WS' | 'WM' | 'WL' | 'WXL'
+// Thumbnail sizes Jottacloud supports: small, medium, large
+export type ThumbnailSize = 'small' | 'medium' | 'large'
 
 export async function fetchThumbnail(
   accessToken: string,
@@ -224,10 +224,9 @@ export async function fetchThumbnail(
   device: string,
   mountpoint: string,
   path: string[],
-  size: ThumbnailSize = 'WS'
+  size: ThumbnailSize = 'small'
 ): Promise<Response> {
-  const url = `${jfsUrl(username, device, mountpoint, path)}?mode=thumb&width=512&height=512`
-  console.log('[Jottacloud API] Thumbnail request:', url)
+  const url = `${jfsUrl(username, device, mountpoint, path)}?mode=thumb&size=${size}`
   return fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
 }
 
