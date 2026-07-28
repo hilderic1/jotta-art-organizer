@@ -246,24 +246,41 @@ export default function TagsPage() {
 
       {mode === 'categories' && <CategoryManager categories={store.categories} onChange={handleCategoriesChange} />}
 
-      {mode === 'assign' && (
-        <TagAssignBrowser
-          categories={store.categories}
-          artworks={store.artworks.filter((a) =>
-            viewMode === 'photos' ? a.mountpoint === 'Google Photos' : a.mountpoint === 'PicsArt'
-          )}
-          onSave={handleSaveTags}
-        />
-      )}
+      {mode !== 'categories' && (() => {
+        const filteredArtworks = store.artworks.filter((a) =>
+          viewMode === 'photos' ? a.mountpoint === 'Google Photos' : a.mountpoint === 'PicsArt'
+        )
 
-      {mode === 'browse' && (
-        <TagFilterBrowser
-          categories={store.categories}
-          artworks={store.artworks.filter((a) =>
-            viewMode === 'photos' ? a.mountpoint === 'Google Photos' : a.mountpoint === 'PicsArt'
-          )}
-        />
-      )}
+        // Find which tags are used in filtered artworks
+        const usedTagValues = new Set<string>()
+        for (const artwork of filteredArtworks) {
+          for (const values of Object.values(artwork.tags)) {
+            for (const value of values) {
+              usedTagValues.add(value)
+            }
+          }
+        }
+
+        // Filter categories to only include those with used values
+        const filteredCategories = store.categories.map((cat) => ({
+          ...cat,
+          values: cat.values.filter((v) => usedTagValues.has(v)),
+        }))
+
+        return (
+          <>
+            {mode === 'assign' && (
+              <TagAssignBrowser categories={filteredCategories} artworks={filteredArtworks} onSave={handleSaveTags} />
+            )}
+
+            {mode === 'browse' && <TagFilterBrowser categories={filteredCategories} artworks={filteredArtworks} />}
+
+            {mode === 'batch' && <BatchTagBrowser store={store} onStoreUpdated={setStore} />}
+
+            {mode === 'classify' && <BatchVisionClassifyBrowser store={store} onStoreUpdated={setStore} />}
+          </>
+        )
+      })()}
 
       {mode === 'batch' && <BatchTagBrowser store={store} onStoreUpdated={setStore} />}
 
