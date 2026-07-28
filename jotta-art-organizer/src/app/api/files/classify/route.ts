@@ -32,7 +32,19 @@ const CLASSIFY_TOOL = {
       subject: { type: 'string', enum: SUBJECT_VALUES, description: 'What the image is mainly of.' },
       palette: { type: 'string', enum: PALETTE_VALUES, description: 'The dominant color temperature/palette.' },
       framed: { type: 'string', enum: FRAMED_VALUES, description: 'Whether a decorative border/mat/frame is baked into the image itself.' },
-      mood: { type: 'string', enum: MOOD_VALUES, description: 'The overall emotional tone/mood.' },
+      mood: {
+        type: 'array',
+        items: { type: 'string', enum: MOOD_VALUES },
+        minItems: 1,
+        maxItems: 2,
+        description:
+          'The emotional tone, strongest first. A second may be added where the piece genuinely holds two at once (calm and dreamlike, say), but most work reads as one — do not add a second to fill the slot.',
+      },
+      suggestedStyle: {
+        type: 'string',
+        description:
+          'Optional, and usually omitted. Only if no listed style genuinely describes this piece, name the missing one in two or three words. This is a proposal for review, not a classification, so leave it out whenever the listed styles already fit.',
+      },
     },
     required: ['style', 'subject', 'palette', 'framed', 'mood'],
   },
@@ -129,16 +141,28 @@ export async function POST(request: NextRequest) {
     // values become stored tags — so drop anything unrecognised rather than
     // letting an invented style into the library.
     const input = toolUse.input as Record<string, unknown>
-    const raw = Array.isArray(input.style) ? input.style : [input.style]
-    let style = [...new Set(raw.filter((s): s is string => typeof s === 'string' && STYLE_VALUES.includes(s)))].slice(
-      0,
-      3
-    )
+
+    const pick = (value: unknown, allowed: string[], max: number): string[] => {
+      const raw = Array.isArray(value) ? value : [value]
+      return [...new Set(raw.filter((v): v is string => typeof v === 'string' && allowed.includes(v)))].slice(0, max)
+    }
+
+    let style = pick(input.style, STYLE_VALUES, 3)
     // "Other" means nothing else fit, so it can't sit beside a real style.
     if (style.length > 1) style = style.filter((s) => s !== 'Other')
     if (style.length === 0) style = ['Other']
 
-    return NextResponse.json({ ...input, style })
+    const mood = pick(input.mood, MOOD_VALUES, 2)
+
+    // A suggestion is free text, so it gets the tightest handling of all:
+    // trimmed, length-capped, and dropped if it just restates a style we
+    // already offer — otherwise "Abstract digital art" would arrive as a
+    // near-duplicate of the real value and defeat the point of reviewing.
+    const proposed = typeof input.suggestedStyle === 'string' ? input.suggestedStyle.trim().slice(0, 40) : ''
+    const isRestatement = STYLE_VALUES.some((v) => v.toLowerCase() === proposed.toLowerCase())
+    const suggestedStyle = proposed.length >= 3 && !isRestatement ? proposed : undefined
+
+    return NextResponse.json({ ...input, style, mood, suggestedStyle })
   } catch (err) {
     if (err instanceof Error && err.message === 'NOT_AUTHENTICATED') {
       return NextResponse.json({ error: 'Not connected to Jottacloud yet.' }, { status: 401 })

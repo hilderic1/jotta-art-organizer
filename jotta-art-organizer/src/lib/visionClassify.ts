@@ -11,6 +11,11 @@ export const SUBJECT_CATEGORY_ID = 'subject'
 export const PALETTE_CATEGORY_ID = 'palette'
 export const FRAMED_CATEGORY_ID = 'framed'
 export const MOOD_CATEGORY_ID = 'mood'
+// Deliberately open, unlike the five above: this is where the model can name
+// a style the closed list is missing, for review and possible promotion into
+// STYLE_DEFINITIONS. Kept separate so speculative words never contaminate
+// Style itself, which Browse-by-tag depends on being a stable vocabulary.
+export const SUGGESTED_STYLE_CATEGORY_ID = 'suggestedStyle'
 
 // Single source of truth for the closed lists — the API route uses these
 // to constrain the model's tool call, and the tag editor uses the same
@@ -50,22 +55,25 @@ export const KNOWN_CLASSIFICATION_VALUES: Record<string, string[]> = {
 }
 
 export type ArtworkClassification = {
-  // These styles overlap by nature — a piece is readily intuitive *and*
-  // expressionist *and* cosmic — so style carries every one that applies
-  // rather than forcing a single winner and discarding the rest.
+  // Style and mood overlap by nature — a piece is readily intuitive *and*
+  // expressionist *and* cosmic, and calm *and* dreamlike — so both carry
+  // every value that applies instead of forcing a single winner and
+  // discarding the rest.
   style: string[]
   subject: string
   palette: string
   framed: string
-  mood: string
+  mood: string[]
+  /** Free text, absent unless the model judged the closed list insufficient. */
+  suggestedStyle?: string
 }
 
 // The model is asked for an array, but a single string is the obvious way
 // for it to go wrong, and a stored tag list of split characters would be a
 // mess to clean up. Cheap to be forgiving here.
-function styleList(style: ArtworkClassification['style'] | string | undefined): string[] {
-  if (Array.isArray(style)) return style.filter((s) => typeof s === 'string' && s.length > 0)
-  if (typeof style === 'string' && style.length > 0) return [style]
+function valueList(value: string[] | string | undefined): string[] {
+  if (Array.isArray(value)) return value.filter((s) => typeof s === 'string' && s.length > 0)
+  if (typeof value === 'string' && value.length > 0) return [value]
   return []
 }
 
@@ -77,7 +85,7 @@ export async function classifyArtwork(loc: MountpointRef, path: string): Promise
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error ?? `Classification failed (${res.status}).`)
-  return { ...data, style: styleList(data.style) } as ArtworkClassification
+  return { ...data, style: valueList(data.style), mood: valueList(data.mood) } as ArtworkClassification
 }
 
 // Overwrites rather than accumulates: each of these five is a single
@@ -88,13 +96,18 @@ export function tagsFromClassification(
   c: ArtworkClassification,
   existing: Record<string, string[]> = {}
 ): Record<string, string[]> {
+  const suggestion = c.suggestedStyle?.trim()
   return {
     ...existing,
-    [STYLE_CATEGORY_ID]: styleList(c.style),
+    [STYLE_CATEGORY_ID]: valueList(c.style),
     [SUBJECT_CATEGORY_ID]: [c.subject],
     [PALETTE_CATEGORY_ID]: [c.palette],
     [FRAMED_CATEGORY_ID]: [c.framed],
-    [MOOD_CATEGORY_ID]: [c.mood],
+    [MOOD_CATEGORY_ID]: valueList(c.mood),
+    // Always written, empty when there's nothing to suggest, so that
+    // re-classifying clears a previous suggestion instead of leaving a
+    // stale one attached to a piece that no longer warrants it.
+    [SUGGESTED_STYLE_CATEGORY_ID]: suggestion ? [suggestion] : [],
   }
 }
 

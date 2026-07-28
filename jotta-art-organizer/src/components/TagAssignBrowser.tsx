@@ -403,7 +403,12 @@ export function TagAssignBrowser({
               {classifyResult && (
                 <p className="mt-1 text-zinc-600 dark:text-zinc-400">
                   🎨 {classifyResult.style.join(' + ')} · {classifyResult.subject} · {classifyResult.palette} ·{' '}
-                  {classifyResult.framed === 'Yes' ? 'Framed' : 'Unframed'} · {classifyResult.mood}
+                  {classifyResult.framed === 'Yes' ? 'Framed' : 'Unframed'} · {classifyResult.mood.join(' + ')}
+                  {classifyResult.suggestedStyle && (
+                    <span className="ml-1 text-amber-700 dark:text-amber-400">
+                      · suggests “{classifyResult.suggestedStyle}”
+                    </span>
+                  )}
                 </p>
               )}
             </div>

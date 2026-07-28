@@ -45,6 +45,7 @@ export const KNOWN_CATEGORY_NAMES: Record<string, string> = {
   palette: 'Palette',
   framed: 'Framed',
   mood: 'Mood',
+  suggestedStyle: 'Suggested style',
 }
 
 // Auto-registers any category/value referenced in `tags` that doesn't exist
@@ -67,7 +68,12 @@ export function ensureCategoriesForTags(categories: Category[], tags: Record<str
       ]
       idx = next.length - 1
     }
-    const missing = values.filter((v) => !next[idx].values.includes(v))
+    // Top up the closed list even when the category already exists. Without
+    // this, a category created under an older vocabulary only ever gains the
+    // values that happen to get assigned, so the picker stays half-empty and
+    // the new options look missing until something is tagged with each one.
+    const canonical = KNOWN_CLASSIFICATION_VALUES[categoryId] ?? []
+    const missing = [...new Set([...canonical, ...values])].filter((v) => !next[idx].values.includes(v))
     if (missing.length > 0) {
       next = next.map((c, i) => (i === idx ? { ...c, values: [...c.values, ...missing] } : c))
     }
