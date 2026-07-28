@@ -236,7 +236,12 @@ export default function TagsPage() {
             {mode === 'categories' && <CategoryManager categories={store.categories} onChange={handleCategoriesChange} />}
 
             {mode === 'assign' && (
-              <TagAssignBrowser categories={filteredCategories} artworks={store.artworks} onSave={handleSaveTags} />
+              <TagAssignBrowser
+                categories={filteredCategories}
+                artworks={store.artworks}
+                onSave={handleSaveTags}
+                initialLocation={selectedBrowseLocation}
+              />
             )}
 
             {mode === 'browse' && <TagFilterBrowser categories={filteredCategories} artworks={store.artworks} />}

@@ -35,13 +35,15 @@ export function TagAssignBrowser({
   categories,
   artworks,
   onSave,
+  initialLocation,
 }: {
   categories: Category[]
   artworks: ArtworkTags[]
   onSave: (entry: JottaEntry, loc: MountpointRef, tags: Record<string, string[]>) => Promise<void>
+  initialLocation?: MountpointRef & { path?: string }
 }) {
-  const [location, setLocation] = useState<MountpointRef | null>(null)
-  const [path, setPath] = useState('')
+  const [location, setLocation] = useState<MountpointRef | null>(initialLocation ? { device: initialLocation.device, mountpoint: initialLocation.mountpoint } : null)
+  const [path, setPath] = useState(initialLocation?.path ?? '')
   const [listing, setListing] = useState<JottaFolderListing | null>(null)
   const [listingError, setListingError] = useState<string | null>(null)
   const [editing, setEditing] = useState<JottaEntry | null>(null)
