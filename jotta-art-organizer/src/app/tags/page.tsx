@@ -25,6 +25,9 @@ export default function TagsPage() {
 
 
   useEffect(() => {
+    // Always start fresh: clear directory selection and metadata when entering Tags page
+    setSelectedBrowseLocation(null)
+    setStore(null)
     getSessionStatus().then(setSession)
   }, [])
 
