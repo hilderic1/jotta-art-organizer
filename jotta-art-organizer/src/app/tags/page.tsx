@@ -20,6 +20,7 @@ export default function TagsPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [mode, setMode] = useState<Mode>('assign')
+  const [isLoadingMetadata, setIsLoadingMetadata] = useState(false)
 
   useEffect(() => {
     getSessionStatus().then(setSession)
@@ -28,12 +29,20 @@ export default function TagsPage() {
   useEffect(() => {
     if (!session?.authenticated || !session.metadataLocation) return
     let ignore = false
+    setIsLoadingMetadata(true)
+    setLoadError(null)
     loadMetadata(session.metadataLocation)
       .then((data) => {
-        if (!ignore) setStore(data)
+        if (!ignore) {
+          setStore(data)
+          setIsLoadingMetadata(false)
+        }
       })
       .catch((err) => {
-        if (!ignore) setLoadError(err instanceof Error ? err.message : 'Failed to load tag data.')
+        if (!ignore) {
+          setLoadError(err instanceof Error ? err.message : 'Failed to load tag data.')
+          setIsLoadingMetadata(false)
+        }
       })
     return () => {
       ignore = true
@@ -146,11 +155,27 @@ export default function TagsPage() {
   }
 
   if (!store) {
-    return <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">Loading tag data…</div>
+    return (
+      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
+        <div>
+          <h1 className="text-2xl font-semibold">Tags</h1>
+          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+            Classify artwork by characteristics (style, subject, mood, …) instead of folder location, then browse by any
+            combination of them.
+          </p>
+        </div>
+        <div className="flex flex-1 items-center justify-center rounded border border-zinc-200 bg-zinc-50 py-20 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex flex-col items-center gap-2">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-zinc-300 border-t-indigo-600 dark:border-zinc-700 dark:border-t-indigo-500"></div>
+            Loading tag data… (this may take a moment with large libraries)
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
+    <div className={`mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10 ${isLoadingMetadata ? 'opacity-60 pointer-events-none' : ''}`}>
       <div>
         <h1 className="text-2xl font-semibold">Tags</h1>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
@@ -160,6 +185,12 @@ export default function TagsPage() {
       </div>
 
       {saveError && <p className="text-sm text-red-600 dark:text-red-400">{saveError}</p>}
+
+      {isLoadingMetadata && (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          Refreshing tag data…
+        </div>
+      )}
 
       <div className="flex gap-2 border-b border-zinc-200 pb-2 dark:border-zinc-800">
         {(
