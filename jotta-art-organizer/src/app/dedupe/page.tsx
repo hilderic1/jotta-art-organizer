@@ -82,6 +82,16 @@ export default function DedupePage() {
   const [deleteProgress, setDeleteProgress] = useState<{ done: number; total: number; currentName: string } | null>(
     null
   )
+  const [deletePaused, setDeletePaused] = useState(false)
+  const deleteStopRef = useRef(false)
+
+  const [similarSelected, setSimilarSelected] = useState<Set<string>>(new Set())
+  const [similarRemoving, setSimilarRemoving] = useState(false)
+  const [similarRemoveError, setSimilarRemoveError] = useState<string | null>(null)
+  const [similarResultMessage, setSimilarResultMessage] = useState<string | null>(null)
+  const [similarRemoveProgress, setSimilarRemoveProgress] = useState<{ done: number; total: number } | null>(null)
+  const [similarRemovePaused, setSimilarRemovePaused] = useState(false)
+  const similarRemoveStopRef = useRef(false)
 
   // Recursive scanning is checkpointed (manifest + small batch files saved
   // to Jottacloud as it goes) rather than a single in-memory walk, since a
@@ -295,12 +305,6 @@ export default function DedupePage() {
   const phashStopRef = useRef(false)
   const phashInitialTotalRef = useRef<number | null>(null)
 
-  const [similarSelected, setSimilarSelected] = useState<Set<string>>(new Set())
-  const [similarRemoving, setSimilarRemoving] = useState(false)
-  const [similarRemoveError, setSimilarRemoveError] = useState<string | null>(null)
-  const [similarResultMessage, setSimilarResultMessage] = useState<string | null>(null)
-  const [similarRemoveProgress, setSimilarRemoveProgress] = useState<{ done: number; total: number } | null>(null)
-
   // Reset the similarity scan whenever the folder being viewed changes —
   // same render-time-reset pattern as toDeleteGroupsKey above.
   const [similarListingKey, setSimilarListingKey] = useState<string | null>(null)
@@ -437,16 +441,28 @@ export default function DedupePage() {
     setSimilarRemoving(true)
     setSimilarRemoveError(null)
     setSimilarResultMessage(null)
+    setSimilarRemovePaused(false)
+    similarRemoveStopRef.current = false
     const targets = [...similarSelected]
     let removed = 0
     try {
       for (const filePath of targets) {
+        // Check for pause
+        while (similarRemovePaused) {
+          await new Promise((r) => setTimeout(r, 100))
+        }
+        // Check for stop
+        if (similarRemoveStopRef.current) break
         setSimilarRemoveProgress({ done: removed, total: targets.length })
         await deleteFile(location, filePath)
         removed++
       }
-      setSimilarResultMessage(`Removed ${removed} file${removed === 1 ? '' : 's'} (moved to Jottacloud trash).`)
-      setRefreshIndex((i) => i + 1)
+      if (similarRemoveStopRef.current) {
+        setSimilarRemoveError(`Paused after removing ${removed} of ${targets.length}. Resume to continue deletion.`)
+      } else {
+        setSimilarResultMessage(`Removed ${removed} file${removed === 1 ? '' : 's'} (moved to Jottacloud trash).`)
+        setRefreshIndex((i) => i + 1)
+      }
     } catch (err) {
       setSimilarRemoveError(
         `Removed ${removed} of ${targets.length} before failing: ${err instanceof Error ? err.message : 'Unknown error.'}`
@@ -455,6 +471,18 @@ export default function DedupePage() {
       setSimilarRemoveProgress(null)
       setSimilarRemoving(false)
     }
+  }
+
+  function pauseSimilarRemove() {
+    setSimilarRemovePaused(true)
+  }
+
+  function resumeSimilarRemove() {
+    setSimilarRemovePaused(false)
+  }
+
+  function cancelSimilarRemove() {
+    similarRemoveStopRef.current = true
   }
 
   function toggle(path: string) {
@@ -471,16 +499,30 @@ export default function DedupePage() {
     setDeleting(true)
     setDeleteError(null)
     setResultMessage(null)
+    setDeletePaused(false)
+    deleteStopRef.current = false
     const targets = [...toDelete]
     let removed = 0
     try {
       for (const filePath of targets) {
+        // Check for pause
+        while (deletePaused) {
+          await new Promise((r) => setTimeout(r, 100))
+        }
+        // Check for stop
+        if (deleteStopRef.current) break
         setDeleteProgress({ done: removed, total: targets.length, currentName: filePath.split('/').pop() ?? filePath })
         await deleteFile(location, filePath)
         removed++
       }
-      setResultMessage(`Removed ${removed} duplicate${removed === 1 ? '' : 's'} (moved to Jottacloud trash).`)
-      setRefreshIndex((i) => i + 1)
+      if (deleteStopRef.current) {
+        setDeleteError(
+          `Paused after removing ${removed} of ${targets.length}. Resume to continue deletion.`
+        )
+      } else {
+        setResultMessage(`Removed ${removed} duplicate${removed === 1 ? '' : 's'} (moved to Jottacloud trash).`)
+        setRefreshIndex((i) => i + 1)
+      }
     } catch (err) {
       setDeleteError(
         `Removed ${removed} of ${targets.length} before failing: ${err instanceof Error ? err.message : 'Unknown error.'}`
@@ -489,6 +531,18 @@ export default function DedupePage() {
       setDeleteProgress(null)
       setDeleting(false)
     }
+  }
+
+  function pauseDelete() {
+    setDeletePaused(true)
+  }
+
+  function resumeDelete() {
+    setDeletePaused(false)
+  }
+
+  function cancelDelete() {
+    deleteStopRef.current = true
   }
 
   if (session === null) {
@@ -792,6 +846,29 @@ export default function DedupePage() {
                           }}
                         />
                       </div>
+                      <div className="mt-2 flex gap-2">
+                        {deletePaused ? (
+                          <button
+                            onClick={resumeDelete}
+                            className="rounded bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500"
+                          >
+                            Resume
+                          </button>
+                        ) : (
+                          <button
+                            onClick={pauseDelete}
+                            className="rounded bg-yellow-600 px-3 py-1 text-xs font-medium text-white hover:bg-yellow-500"
+                          >
+                            Pause
+                          </button>
+                        )}
+                        <button
+                          onClick={cancelDelete}
+                          className="rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-500"
+                        >
+                          Stop
+                        </button>
+                      </div>
                     </div>
                   )}
                 </>
@@ -960,6 +1037,29 @@ export default function DedupePage() {
                               width: `${similarRemoveProgress.total ? Math.round((similarRemoveProgress.done / similarRemoveProgress.total) * 100) : 0}%`,
                             }}
                           />
+                        </div>
+                        <div className="mt-2 flex gap-2">
+                          {similarRemovePaused ? (
+                            <button
+                              onClick={resumeSimilarRemove}
+                              className="rounded bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500"
+                            >
+                              Resume
+                            </button>
+                          ) : (
+                            <button
+                              onClick={pauseSimilarRemove}
+                              className="rounded bg-yellow-600 px-3 py-1 text-xs font-medium text-white hover:bg-yellow-500"
+                            >
+                              Pause
+                            </button>
+                          )}
+                          <button
+                            onClick={cancelSimilarRemove}
+                            className="rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-500"
+                          >
+                            Stop
+                          </button>
                         </div>
                       </div>
                     )}
