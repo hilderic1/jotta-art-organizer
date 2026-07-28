@@ -12,6 +12,7 @@ import { BatchTagBrowser } from '@/components/BatchTagBrowser'
 import { BatchVisionClassifyBrowser } from '@/components/BatchVisionClassifyBrowser'
 
 type Mode = 'assign' | 'browse' | 'batch' | 'classify' | 'categories'
+type ViewMode = 'photos' | 'artwork'
 
 export default function TagsPage() {
   const [session, setSession] = useState<SessionStatus | null>(null)
@@ -21,6 +22,7 @@ export default function TagsPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [mode, setMode] = useState<Mode>('assign')
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>('photos')
 
   useEffect(() => {
     getSessionStatus().then(setSession)
@@ -192,35 +194,76 @@ export default function TagsPage() {
         </div>
       )}
 
-      <div className="flex gap-2 border-b border-zinc-200 pb-2 dark:border-zinc-800">
-        {(
-          [
-            ['assign', 'Assign tags'],
-            ['browse', 'Browse by tag'],
-            ['batch', 'Batch import'],
-            ['classify', 'AI Classify'],
-            ['categories', 'Categories'],
-          ] as [Mode, string][]
-        ).map(([m, label]) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            className={`rounded px-3 py-1.5 text-sm font-medium ${
-              mode === m ? 'bg-indigo-600 text-white' : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex flex-col gap-3 border-b border-zinc-200 pb-3 dark:border-zinc-800">
+        <div className="flex gap-2">
+          {(
+            [
+              ['assign', 'Assign tags'],
+              ['browse', 'Browse by tag'],
+              ['batch', 'Batch import'],
+              ['classify', 'AI Classify'],
+              ['categories', 'Categories'],
+            ] as [Mode, string][]
+          ).map(([m, label]) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`rounded px-3 py-1.5 text-sm font-medium ${
+                mode === m ? 'bg-indigo-600 text-white' : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {mode !== 'categories' && (
+          <div className="flex gap-2">
+            <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400 flex items-center">View:</label>
+            <button
+              onClick={() => setViewMode('photos')}
+              className={`rounded px-3 py-1 text-xs font-medium ${
+                viewMode === 'photos'
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900'
+              }`}
+            >
+              📷 Photos
+            </button>
+            <button
+              onClick={() => setViewMode('artwork')}
+              className={`rounded px-3 py-1 text-xs font-medium ${
+                viewMode === 'artwork'
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900'
+              }`}
+            >
+              🎨 Artwork
+            </button>
+          </div>
+        )}
       </div>
 
       {mode === 'categories' && <CategoryManager categories={store.categories} onChange={handleCategoriesChange} />}
 
       {mode === 'assign' && (
-        <TagAssignBrowser categories={store.categories} artworks={store.artworks} onSave={handleSaveTags} />
+        <TagAssignBrowser
+          categories={store.categories}
+          artworks={store.artworks.filter((a) =>
+            viewMode === 'photos' ? a.mountpoint === 'Google Photos' : a.mountpoint === 'PicsArt'
+          )}
+          onSave={handleSaveTags}
+        />
       )}
 
-      {mode === 'browse' && <TagFilterBrowser categories={store.categories} artworks={store.artworks} />}
+      {mode === 'browse' && (
+        <TagFilterBrowser
+          categories={store.categories}
+          artworks={store.artworks.filter((a) =>
+            viewMode === 'photos' ? a.mountpoint === 'Google Photos' : a.mountpoint === 'PicsArt'
+          )}
+        />
+      )}
 
       {mode === 'batch' && <BatchTagBrowser store={store} onStoreUpdated={setStore} />}
 
