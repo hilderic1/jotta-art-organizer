@@ -224,7 +224,8 @@ export default function TagsPage() {
         const filteredArtworks = store.artworks.filter((a) => {
           if (a.device !== selectedBrowseLocation.device || a.mountpoint !== selectedBrowseLocation.mountpoint) return false
           if (selectedBrowseLocation.path) {
-            return a.path.startsWith(selectedBrowseLocation.path + '/') || a.path === selectedBrowseLocation.path
+            const path = selectedBrowseLocation.path.trim()
+            return a.path === path || a.path.startsWith(path + '/')
           }
           return true
         })
