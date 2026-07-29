@@ -192,6 +192,27 @@ export async function GET(request: NextRequest) {
           entry.keyword = keyword
         }
         chunks.push(entry)
+
+        // caBX carries a C2PA / JUMBF manifest: CBOR-encoded assertions with
+        // readable text mixed in. Rather than decode CBOR on spec, pull the
+        // printable runs out so the actual contents can be seen first.
+        if (type === 'caBX' && offset + 8 + length <= view.byteLength) {
+          const runs: string[] = []
+          let current = ''
+          for (let i = offset + 8; i < Math.min(offset + 8 + length, view.byteLength); i++) {
+            const c = view.getUint8(i)
+            if (c >= 32 && c < 127) {
+              current += String.fromCharCode(c)
+              continue
+            }
+            if (current.length >= 6) runs.push(current)
+            current = ''
+            if (runs.length >= 150) break
+          }
+          if (current.length >= 6 && runs.length < 150) runs.push(current)
+          report.c2paStrings = runs.slice(0, 150)
+        }
+
         if (type === 'IDAT' || type === 'IEND') break
         offset += 8 + length + 4
       }
