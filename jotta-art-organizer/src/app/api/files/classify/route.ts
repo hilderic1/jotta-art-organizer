@@ -107,10 +107,12 @@ export async function POST(request: NextRequest) {
               {
                 type: 'text',
                 text:
-                  'Classify this artwork using the classify_artwork tool. Context: this collection is ' +
-                  'largely abstract, intuitive digital art created in PicsArt, so judge it on colour, form, ' +
-                  'rhythm, texture and composition rather than looking for a realistic subject. Absence of a ' +
-                  'recognisable subject is normal here and is not a reason to answer "Other".',
+                  'Classify this artwork using the classify_artwork tool. Background, not instruction: the ' +
+                  'collection leans towards abstract, intuitive digital art made in PicsArt, so a piece with no ' +
+                  'recognisable subject is unremarkable here and is not by itself a reason to answer "Other". ' +
+                  'It also holds figurative work — drawings, studies and photographs of people, objects and ' +
+                  'places. Classify what is actually in front of you: where a subject is recognisable, name it, ' +
+                  'and never call a figurative piece abstract on account of the company it keeps.',
               },
             ],
           },

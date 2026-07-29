@@ -59,6 +59,11 @@ export function TagAssignBrowser({
   const [classifying, setClassifying] = useState(false)
   const [classifyError, setClassifyError] = useState<string | null>(null)
   const [classifyResult, setClassifyResult] = useState<ArtworkClassification | null>(null)
+  // Which categories the file already used when the editor opened. Frozen at
+  // that moment rather than tracking pendingTags live, so a category doesn't
+  // leap to the top the instant you tag it and shift the buttons out from
+  // under the cursor.
+  const [initiallyTagged, setInitiallyTagged] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (!location) return
@@ -80,7 +85,11 @@ export function TagAssignBrowser({
 
   function openEditor(entry: JottaEntry) {
     const existing = entry.md5 ? artworks.find((a) => a.md5 === entry.md5) : undefined
-    setPendingTags(existing?.tags ?? {})
+    const existingTags = existing?.tags ?? {}
+    setPendingTags(existingTags)
+    setInitiallyTagged(
+      new Set(Object.keys(existingTags).filter((id) => (existingTags[id]?.length ?? 0) > 0))
+    )
     setNewValueDrafts({})
     setEditing(entry)
     setMetadataPreview(null)
@@ -207,6 +216,13 @@ export function TagAssignBrowser({
         values: [...new Set([...(KNOWN_CLASSIFICATION_VALUES[id] ?? []), ...(pendingTags[id] ?? [])])],
       })),
   ]
+
+  // Categories the file already carries come first, so what's set is visible
+  // without scrolling past everything that isn't. Sort is stable, so within
+  // each group the original order is preserved.
+  const orderedCategories = [...effectiveCategories].sort(
+    (a, b) => Number(!initiallyTagged.has(a.id)) - Number(!initiallyTagged.has(b.id))
+  )
 
   const crumbs = segments(path)
 
@@ -463,7 +479,7 @@ export function TagAssignBrowser({
               )
             })()}
             <div className="flex flex-col gap-3">
-              {effectiveCategories
+              {orderedCategories
                 .filter((cat) => cat.values.length > 0)
                 .map((category) => {
                   const activeValues = pendingTags[category.id] ?? []
