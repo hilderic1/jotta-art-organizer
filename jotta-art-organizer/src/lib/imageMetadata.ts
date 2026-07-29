@@ -17,7 +17,7 @@ export type ArtworkFileMetadata = {
   /** Jottacloud's own timestamp for the file, not anything embedded in it —
    *  see JOTTA_CREATED_CATEGORY_ID for why the two are kept apart. */
   jottaCreatedAtEpochSeconds?: number
-  /** EXIF DateTime, or XMP ModifyDate: when software last wrote the file. */
+  /** EXIF DateTime: when software last wrote the file. */
   fileChangedAtEpochSeconds?: number
   authors?: string[]
   programName?: string
@@ -164,9 +164,7 @@ function utf8(view: DataView, start: number, end: number): string {
 // only the encoding around them differs.
 function applyPngTextKeyword(keyword: string, text: string, result: ArtworkFileMetadata): void {
   const key = keyword.toLowerCase()
-  if (key === 'xml:com.adobe.xmp') {
-    parseXmp(text, result)
-  } else if (key === 'creation time') {
+  if (key === 'creation time') {
     const parsed = Date.parse(text)
     if (Number.isFinite(parsed)) result.dateTakenAtEpochSeconds = Math.round(parsed / 1000)
   } else if (key === 'author' && text) {
@@ -349,11 +347,9 @@ function parseExifTiff(view: DataView, tiffStart: number, result: ArtworkFileMet
   // Kept apart rather than folded together. DateTime is when software last
   // wrote the file, which for an edited image is the export — presenting that
   // as when the picture was taken would be a guess dressed up as a fact.
-  // Guarded like every other field here, and for a concrete reason: XMP and
-  // EXIF are both APP1 segments and XMP can come first, so assigning
-  // unconditionally let an EXIF block with no dates erase dates XMP had
-  // already supplied. A file with xmp:CreateDate and no DateTimeOriginal
-  // ended up showing no date at all.
+  // Guarded like every other field here. Assigning unconditionally lets a
+  // segment carrying no dates overwrite dates an earlier one already found —
+  // which is how a file with a perfectly good date ended up showing none.
   const taken = parseExifDateTime(dateTimeOriginal)
   if (taken != null) result.dateTakenAtEpochSeconds = taken
 
@@ -366,55 +362,12 @@ function parseExifTiff(view: DataView, tiffStart: number, result: ArtworkFileMet
 
 const JFIF_ID = [0x4a, 0x46, 0x49, 0x46, 0x00] // "JFIF\0"
 const EXIF_ID = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00] // "Exif\0\0"
-// "http://ns.adobe.com/xap/1.0/\0" — the namespace header on an XMP APP1.
-const XMP_ID = [
-  0x68, 0x74, 0x74, 0x70, 0x3a, 0x2f, 0x2f, 0x6e, 0x73, 0x2e, 0x61, 0x64, 0x6f, 0x62, 0x65, 0x2e, 0x63, 0x6f, 0x6d,
-  0x2f, 0x78, 0x61, 0x70, 0x2f, 0x31, 0x2e, 0x30, 0x2f, 0x00,
-]
-
-// Values appear either as an attribute (xmp:CreateDate="...") or an element
-// (<xmp:CreateDate>...</xmp:CreateDate>) depending on the writer, so both
-// forms are tried. A real XML parse would be overkill for four fields.
-function xmpValue(xml: string, property: string): string | undefined {
-  const attribute = new RegExp(`${property}\\s*=\\s*"([^"]*)"`).exec(xml)
-  if (attribute?.[1]) return attribute[1].trim() || undefined
-  const element = new RegExp(`<${property}[^>]*>([\\s\\S]*?)</${property}>`).exec(xml)
-  if (!element?.[1]) return undefined
-  // dc:creator and friends wrap their value in an rdf list.
-  const listItem = /<rdf:li[^>]*>([\s\S]*?)<\/rdf:li>/.exec(element[1])
-  return (listItem?.[1] ?? element[1]).trim() || undefined
-}
-
-function xmpDate(xml: string, property: string): number | undefined {
-  const raw = xmpValue(xml, property)
-  if (!raw) return undefined
-  const parsed = Date.parse(raw)
-  return Number.isNaN(parsed) ? undefined : Math.round(parsed / 1000)
-}
-
-// Editors frequently write XMP and no EXIF at all, which is exactly the case
-// where a file looks dateless. EXIF still wins where both exist: it's the
-// more specific record of the two.
-function parseXmp(rawXml: string, result: ArtworkFileMetadata): void {
-  // Bounded before any regex touches it. The lazy element patterns below are
-  // quadratic against a document with no match, and an XMP packet can carry a
-  // large embedded thumbnail — the properties we want are always near the top.
-  const xml = rawXml.length > 65536 ? rawXml.slice(0, 65536) : rawXml
-  const taken = xmpDate(xml, 'photoshop:DateCreated') ?? xmpDate(xml, 'xmp:CreateDate')
-  if (taken != null && result.dateTakenAtEpochSeconds == null) result.dateTakenAtEpochSeconds = taken
-
-  const changed = xmpDate(xml, 'xmp:ModifyDate')
-  if (changed != null && result.fileChangedAtEpochSeconds == null) result.fileChangedAtEpochSeconds = changed
-
-  const tool = xmpValue(xml, 'xmp:CreatorTool')
-  if (tool && !result.programName) result.programName = tool
-
-  const creator = xmpValue(xml, 'dc:creator')
-  if (creator && !result.authors?.length) result.authors = splitAuthors(creator)
-
-  const rights = xmpValue(xml, 'dc:rights')
-  if (rights && !result.copyright) result.copyright = rights
-}
+// XMP parsing was tried here and removed. It was added on the theory that an
+// editor writing no EXIF might still write XMP, and across both a PicsArt PNG
+// and a PicsArt JPEG it produced no date at all — while costing two
+// regressions: a truncated segment threw and wiped every property parsed
+// before it, and its date could be erased by a later EXIF block. EXIF and the
+// PNG text chunks cover what these files actually carry.
 
 function parseJpeg(view: DataView): ArtworkFileMetadata {
   const result: ArtworkFileMetadata = {}
@@ -456,12 +409,6 @@ function parseJpeg(view: DataView): ArtworkFileMetadata {
       }
     } else if (marker === 0xe1 && segmentStart + 6 <= view.byteLength && bytesEqual(view, segmentStart, EXIF_ID)) {
       parseExifTiff(view, segmentStart + 6, result)
-    } else if (
-      marker === 0xe1 &&
-      segmentStart + XMP_ID.length <= view.byteLength &&
-      bytesEqual(view, segmentStart, XMP_ID)
-    ) {
-      parseXmp(utf8(view, segmentStart + XMP_ID.length, segmentStart + segmentDataLength), result)
     } else if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
       // SOF0-15 (excluding DHT/JPG/DAC): precision(1) height(2) width(2)
       if (segmentStart + 5 <= view.byteLength) {
