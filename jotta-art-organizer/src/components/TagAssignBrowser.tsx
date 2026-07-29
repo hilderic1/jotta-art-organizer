@@ -83,7 +83,9 @@ export function TagAssignBrowser({
   // leap to the top the instant you tag it and shift the buttons out from
   // under the cursor.
   const [initiallyTagged, setInitiallyTagged] = useState<Set<string>>(new Set())
-  const [sort, setSort] = useState<Sort>('name')
+  // Recently changed by default: tagging works through what you've touched
+  // most recently far more often than through an alphabet.
+  const [sort, setSort] = useState<Sort>('modified-desc')
 
   useEffect(() => {
     if (!location) return
