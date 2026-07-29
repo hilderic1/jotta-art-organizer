@@ -252,6 +252,24 @@ export async function GET(request: NextRequest) {
             report.exifError = err instanceof Error ? err.message : 'failed'
           }
         }
+        // APP11 is where a JPEG keeps C2PA, split across segments if large.
+        if (marker === 0xeb && segmentStart + 2 <= view.byteLength) {
+          const runs: string[] = []
+          let current = ''
+          for (let i = segmentStart; i < Math.min(segmentStart + length - 2, view.byteLength); i++) {
+            const c = view.getUint8(i)
+            if (c >= 32 && c < 127) {
+              current += String.fromCharCode(c)
+              continue
+            }
+            if (current.length >= 6) runs.push(current)
+            current = ''
+            if (runs.length >= 150) break
+          }
+          if (current.length >= 6 && runs.length < 150) runs.push(current)
+          const existing = (report.c2paStrings as string[] | undefined) ?? []
+          report.c2paStrings = [...existing, ...runs].slice(0, 150)
+        }
         if (marker === 0xed && identifier.startsWith('Photoshop')) {
           try {
             report.iptc = readPhotoshopIptc(view, segmentStart, segmentStart + Math.max(length - 2, 0))

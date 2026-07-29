@@ -519,6 +519,10 @@ const EXIF_ID = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00] // "Exif\0\0"
 
 function parseJpeg(view: DataView): ArtworkFileMetadata {
   const result: ArtworkFileMetadata = {}
+  // A JPEG keeps its C2PA manifest in APP11 rather than the caBX chunk a PNG
+  // uses, and a manifest larger than a segment is split across several of
+  // them — so they're gathered and read as one.
+  const app11: string[] = []
   let offset = 2
   while (offset + 4 <= view.byteLength) {
     if (view.getUint8(offset) !== 0xff) {
@@ -557,6 +561,8 @@ function parseJpeg(view: DataView): ArtworkFileMetadata {
       }
     } else if (marker === 0xe1 && segmentStart + 6 <= view.byteLength && bytesEqual(view, segmentStart, EXIF_ID)) {
       parseExifTiff(view, segmentStart + 6, result)
+    } else if (marker === 0xeb && segmentDataLength > 0) {
+      app11.push(latin1(view, segmentStart, Math.min(segmentStart + segmentDataLength, view.byteLength)))
     } else if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
       // SOF0-15 (excluding DHT/JPG/DAC): precision(1) height(2) width(2)
       if (segmentStart + 5 <= view.byteLength) {
@@ -572,6 +578,14 @@ function parseJpeg(view: DataView): ArtworkFileMetadata {
     }
 
     offset = segmentStart + Math.max(segmentDataLength, 0)
+  }
+
+  if (app11.length > 0) {
+    try {
+      applyC2pa(app11.join(''), result)
+    } catch (err) {
+      console.warn('[imageMetadata] skipped an unreadable C2PA manifest', err)
+    }
   }
   return result
 }
