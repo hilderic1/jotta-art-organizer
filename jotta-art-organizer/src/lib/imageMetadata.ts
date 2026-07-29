@@ -186,8 +186,17 @@ const HEADER_RANGE_BYTES = 524288 // 512 KiB — comfortably covers PNG's leadin
 async function fetchHeaderBytes(loc: MountpointRef, path: string): Promise<ArrayBuffer | null> {
   try {
     const res = await fetch(viewUrl(loc, path), { headers: { Range: `bytes=0-${HEADER_RANGE_BYTES - 1}` } })
-    if (!res.ok) return null
-    return await res.arrayBuffer()
+    if (res.ok) return await res.arrayBuffer()
+
+    // 416 means the file is shorter than the range asked for. Jottacloud
+    // rejects that outright instead of returning the bytes it does have, so
+    // every file under the prefix size was silently yielding no properties
+    // at all. They're the cheapest ones to fetch whole.
+    if (res.status === 416) {
+      const whole = await fetch(viewUrl(loc, path))
+      if (whole.ok) return await whole.arrayBuffer()
+    }
+    return null
   } catch {
     return null
   }

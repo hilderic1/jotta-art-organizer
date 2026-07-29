@@ -163,9 +163,13 @@ export async function GET(request: NextRequest) {
     }
     const path = segments.join('/')
 
-    const res = await fetchFile(accessToken, username, device, mountpoint, segments, {
+    let res = await fetchFile(accessToken, username, device, mountpoint, segments, {
       range: 'bytes=0-524287',
     })
+    // 416 means the file is shorter than the range asked for; fetch it whole.
+    if (res.status === 416) {
+      res = await fetchFile(accessToken, username, device, mountpoint, segments)
+    }
     if (!res.ok) return NextResponse.json({ error: `Could not read the file (${res.status}).` }, { status: 502 })
 
     const buffer = await res.arrayBuffer()
