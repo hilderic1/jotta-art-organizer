@@ -16,6 +16,7 @@ import {
 import {
   readArtworkMetadata,
   deriveTagsFromFileMetadata,
+  DATE_ACQUIRED_CATEGORY_ID,
   JOTTA_CREATED_CATEGORY_ID,
   type ArtworkFileMetadata,
 } from '@/lib/imageMetadata'
@@ -257,12 +258,28 @@ export function TagAssignBrowser({
   const tagsByMd5 = new Map(artworks.map((a) => [a.md5, a.tags]))
   function dateOf(file: JottaEntry): number {
     const tags = file.md5 ? tagsByMd5.get(file.md5) : undefined
-    const stored = tags?.[PHOTO_TAKEN_TIME_CATEGORY_ID]?.[0] ?? tags?.[JOTTA_CREATED_CATEGORY_ID]?.[0]
+    const stored =
+      tags?.[PHOTO_TAKEN_TIME_CATEGORY_ID]?.[0] ??
+      // Date Acquired sits between the two on purpose: when a piece was
+      // digitised is far closer to when it was made than when it happened to
+      // be uploaded, so skipping it would push files to the wrong end.
+      tags?.[DATE_ACQUIRED_CATEGORY_ID]?.[0] ??
+      tags?.[JOTTA_CREATED_CATEGORY_ID]?.[0]
     if (stored) {
       const parsed = Date.parse(stored)
       if (!Number.isNaN(parsed)) return parsed
     }
     return jottaTime(file.created)
+  }
+
+  // Whichever category the user made for titles — matched by name rather than
+  // a hardcoded id, since it's one they created and could have called
+  // anything close to "Title".
+  const titleCategoryId = categories.find((c) => c.id === 'title' || c.name.trim().toLowerCase() === 'title')?.id
+
+  function labelFor(file: JottaEntry): string {
+    if (!titleCategoryId || !file.md5) return file.name
+    return tagsByMd5.get(file.md5)?.[titleCategoryId]?.[0]?.trim() || file.name
   }
 
   const crumbs = segments(path)
@@ -366,7 +383,11 @@ export function TagAssignBrowser({
                         </span>
                       )}
                     </div>
-                    <span className="w-full truncate text-xs">{f.name}</span>
+                    {/* The filename stays reachable on hover — it's still how
+                        the file is identified everywhere else. */}
+                    <span className="w-full truncate text-xs" title={f.name}>
+                      {labelFor(f)}
+                    </span>
                     {tagCount > 0 && (
                       <span className="text-xs text-indigo-600 dark:text-indigo-400">
                         {tagCount} tag{tagCount === 1 ? '' : 's'}
@@ -389,7 +410,12 @@ export function TagAssignBrowser({
             className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-lg bg-white p-4 dark:bg-zinc-900"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="mb-1 truncate font-medium">{editing.name}</h3>
+            <h3 className="mb-1 truncate font-medium" title={editing.name}>
+              {labelFor(editing)}
+            </h3>
+            {labelFor(editing) !== editing.name && (
+              <p className="mb-1 truncate text-xs text-zinc-400">{editing.name}</p>
+            )}
 
             {/* The tag list is long enough to scroll past the filename, and
                 the point of tagging is what the picture looks like — so keep
