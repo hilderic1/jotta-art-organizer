@@ -80,8 +80,19 @@ export function LocationPicker({ onSelect }: { onSelect: (loc: MountpointRef & {
   if (currentLoc) {
     return (
       <div className="w-full rounded-lg border border-zinc-200 dark:border-zinc-800">
-        <div className="border-b border-zinc-200 px-3 py-2 text-sm font-medium dark:border-zinc-800">
-          {currentPath ? `${currentLoc.mountpoint}/${currentPath}` : currentLoc.mountpoint}
+        {/* Select sits with the folder it acts on. At the bottom of the list
+            it read as belonging to the subfolder above it, which is the one
+            thing it doesn't select. */}
+        <div className="flex items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+          <span className="truncate text-sm font-medium">
+            {currentPath ? `${currentLoc.mountpoint}/${currentPath}` : currentLoc.mountpoint}
+          </span>
+          <button
+            onClick={selectCurrent}
+            className="shrink-0 rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500"
+          >
+            Select this folder
+          </button>
         </div>
         <div className="min-h-[120px] p-3">
           {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
@@ -122,12 +133,6 @@ export function LocationPicker({ onSelect }: { onSelect: (loc: MountpointRef & {
                 ← Up one level
               </button>
             )}
-            <button
-              onClick={selectCurrent}
-              className="ml-auto rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500"
-            >
-              Select
-            </button>
           </div>
         </div>
       </div>

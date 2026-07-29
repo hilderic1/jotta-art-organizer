@@ -186,6 +186,7 @@ function parsePng(view: DataView): ArtworkFileMetadata {
     const type = latin1(view, offset + 4, offset + 8)
     const dataStart = offset + 8
 
+    try {
     if (type === 'IHDR' && dataStart + 8 <= view.byteLength) {
       result.width = view.getUint32(dataStart, false)
       result.height = view.getUint32(dataStart + 4, false)
@@ -232,6 +233,9 @@ function parsePng(view: DataView): ArtworkFileMetadata {
       parseExifTiff(view, dataStart, result)
     } else if (type === 'IDAT' || type === 'IEND') {
       break // metadata chunks always precede IDAT per the PNG spec
+    }
+    } catch (err) {
+      console.warn('[imageMetadata] skipped a malformed PNG chunk', err)
     }
 
     offset = dataStart + length + 4 // + 4-byte CRC
@@ -381,7 +385,11 @@ function xmpDate(xml: string, property: string): number | undefined {
 // Editors frequently write XMP and no EXIF at all, which is exactly the case
 // where a file looks dateless. EXIF still wins where both exist: it's the
 // more specific record of the two.
-function parseXmp(xml: string, result: ArtworkFileMetadata): void {
+function parseXmp(rawXml: string, result: ArtworkFileMetadata): void {
+  // Bounded before any regex touches it. The lazy element patterns below are
+  // quadratic against a document with no match, and an XMP packet can carry a
+  // large embedded thumbnail — the properties we want are always near the top.
+  const xml = rawXml.length > 65536 ? rawXml.slice(0, 65536) : rawXml
   const taken = xmpDate(xml, 'photoshop:DateCreated') ?? xmpDate(xml, 'xmp:CreateDate')
   if (taken != null && result.dateTakenAtEpochSeconds == null) result.dateTakenAtEpochSeconds = taken
 
@@ -420,6 +428,11 @@ function parseJpeg(view: DataView): ArtworkFileMetadata {
     const segmentStart = offset + 4
     const segmentDataLength = length - 2
 
+    // Guarded per segment, not per file. A whole-file guard meant one bad
+    // segment discarded the EXIF that a previous segment had already parsed
+    // successfully — which is how a JPEG ended up showing no dates at all
+    // while still having them.
+    try {
     if (marker === 0xe0 && segmentStart + 12 <= view.byteLength && bytesEqual(view, segmentStart, JFIF_ID)) {
       const units = view.getUint8(segmentStart + 7)
       const xDensity = view.getUint16(segmentStart + 8, false)
@@ -448,6 +461,9 @@ function parseJpeg(view: DataView): ArtworkFileMetadata {
       break // found dimensions; SOS/scan data follows, nothing else to read
     } else if (marker === 0xda) {
       break // start of scan — no more marker segments
+    }
+    } catch (err) {
+      console.warn('[imageMetadata] skipped a malformed JPEG segment', err)
     }
 
     offset = segmentStart + Math.max(segmentDataLength, 0)
