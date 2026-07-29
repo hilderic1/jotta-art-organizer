@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAccessToken } from '@/lib/jotta/server'
-import { fetchFile } from '@/lib/jotta/client'
+import { fetchFile, listFolder } from '@/lib/jotta/client'
 
 // Temporary diagnostic. Reports what a file actually contains — every JPEG
 // segment, every EXIF tag id, every PNG chunk — so "there is no date in this
@@ -142,12 +142,28 @@ export async function GET(request: NextRequest) {
     const q = request.nextUrl.searchParams
     const device = q.get('device')
     const mountpoint = q.get('mountpoint')
-    const path = q.get('path')
-    if (!device || !mountpoint || !path) {
-      return NextResponse.json({ error: 'device, mountpoint and path are required.' }, { status: 400 })
+    if (!device || !mountpoint) {
+      return NextResponse.json({ error: 'device and mountpoint are required.' }, { status: 400 })
     }
 
-    const res = await fetchFile(accessToken, username, device, mountpoint, path.split('/').filter(Boolean), {
+    // Either name a file outright, or give a folder and an optional extension
+    // and let it pick the first match — saves hunting for a filename.
+    let segments = (q.get('path') ?? '').split('/').filter(Boolean)
+    if (segments.length === 0) {
+      const folder = (q.get('folder') ?? '').split('/').filter(Boolean)
+      const ext = (q.get('ext') ?? '').toLowerCase().replace('.', '')
+      const listing = await listFolder(accessToken, username, device, mountpoint, folder)
+      const match = listing.files.find((f) =>
+        ext ? f.name.toLowerCase().endsWith(`.${ext}`) : /\.(jpe?g|png)$/i.test(f.name)
+      )
+      if (!match) {
+        return NextResponse.json({ error: `No ${ext || 'image'} found directly in that folder.` }, { status: 404 })
+      }
+      segments = match.path.split('/').filter(Boolean)
+    }
+    const path = segments.join('/')
+
+    const res = await fetchFile(accessToken, username, device, mountpoint, segments, {
       range: 'bytes=0-524287',
     })
     if (!res.ok) return NextResponse.json({ error: `Could not read the file (${res.status}).` }, { status: 502 })
