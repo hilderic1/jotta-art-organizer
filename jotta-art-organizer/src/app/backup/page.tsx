@@ -8,6 +8,7 @@ import {
   getSessionStatus,
   createFolder,
   copyFile,
+  deleteFile,
   walkTree,
   listFolder,
   type SessionStatus,
@@ -29,7 +30,16 @@ type Plan = {
 }
 
 type Progress = { done: number; total: number; currentName: string }
-type Result = { copied: number; failed: { relPath: string; error: string }[] }
+type Mode = 'copy' | 'move'
+// A move that copied but couldn't remove the original is reported separately
+// from a failed copy: the file is safely at the destination either way, and
+// conflating the two would make it look as though data hadn't arrived.
+type Result = {
+  copied: number
+  failed: { relPath: string; error: string }[]
+  removed: number
+  removeFailed: { relPath: string; error: string }[]
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -71,6 +81,8 @@ export default function BackupPage() {
   const [scanProgress, setScanProgress] = useState<string | null>(null)
   const [plan, setPlan] = useState<Plan | null>(null)
 
+  const [mode, setMode] = useState<Mode>('copy')
+  const [confirmingMove, setConfirmingMove] = useState(false)
   const [copying, setCopying] = useState(false)
   const [progress, setProgress] = useState<Progress | null>(null)
   const [result, setResult] = useState<Result | null>(null)
@@ -192,7 +204,9 @@ export default function BackupPage() {
     }
 
     let copied = 0
+    let removed = 0
     const failed: { relPath: string; error: string }[] = []
+    const removeFailed: { relPath: string; error: string }[] = []
     for (const f of plan.toCopy) {
       setProgress({ done: copied, total: plan.toCopy.length, currentName: f.relPath })
       try {
@@ -200,11 +214,31 @@ export default function BackupPage() {
         copied++
       } catch (err) {
         failed.push({ relPath: f.relPath, error: err instanceof Error ? err.message : 'Copy failed.' })
+        // Nothing arrived, so there is nothing to clean up — and deleting
+        // here would destroy the only copy.
+        continue
+      }
+
+      // Strictly after a successful copy, never before: a move that removed
+      // first and failed second would lose the file outright. Only files
+      // this run actually copied are removed — anything skipped as already
+      // present at the destination is left alone, since "identical name at
+      // the destination" isn't proof enough to delete an original on.
+      if (mode === 'move') {
+        try {
+          await deleteFile(source.loc, f.absPath)
+          removed++
+        } catch (err) {
+          removeFailed.push({
+            relPath: f.relPath,
+            error: err instanceof Error ? err.message : 'Could not remove the original.',
+          })
+        }
       }
     }
 
     setProgress(null)
-    setResult({ copied, failed })
+    setResult({ copied, failed, removed, removeFailed })
     setCopying(false)
   }
 
@@ -226,7 +260,7 @@ export default function BackupPage() {
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold">Backup / copy between folders</h1>
+        <h1 className="text-2xl font-semibold">Copy or move between folders</h1>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
           Recursively copies a whole folder tree to another location using Jottacloud&rsquo;s own server-side copy — no
           file bytes pass through this app. Safe to re-run: files already matching at the destination are skipped, and
@@ -404,15 +438,78 @@ export default function BackupPage() {
           )}
 
           {plan.toCopy.length > 0 ? (
-            <button
-              disabled={copying}
-              onClick={runBackup}
-              className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-            >
-              {copying ? 'Copying…' : `Start copying ${plan.toCopy.length} file${plan.toCopy.length === 1 ? '' : 's'}`}
-            </button>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                {(
+                  [
+                    ['copy', 'Copy'],
+                    ['move', 'Move'],
+                  ] as [Mode, string][]
+                ).map(([m, label]) => (
+                  <button
+                    key={m}
+                    onClick={() => {
+                      setMode(m)
+                      setConfirmingMove(false)
+                    }}
+                    className={`rounded px-3 py-1.5 text-sm font-medium ${
+                      mode === m
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <span className="text-xs text-zinc-500">
+                  {mode === 'copy'
+                    ? 'Originals stay where they are.'
+                    : 'Each original is sent to trash once its copy has succeeded.'}
+                </span>
+              </div>
+
+              {confirmingMove ? (
+                <div className="flex flex-col gap-2 rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950">
+                  <p className="text-amber-900 dark:text-amber-200">
+                    Move {plan.toCopy.length} file{plan.toCopy.length === 1 ? '' : 's'} out of{' '}
+                    <span className="font-medium">{source?.path || source?.loc.mountpoint}</span>? Each one is copied
+                    first and only removed once that copy has succeeded. Removed files go to Jottacloud&rsquo;s trash,
+                    so they can be restored — nothing is permanently deleted.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      disabled={copying}
+                      onClick={() => {
+                        setConfirmingMove(false)
+                        runBackup()
+                      }}
+                      className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+                    >
+                      Yes, move {plan.toCopy.length} file{plan.toCopy.length === 1 ? '' : 's'}
+                    </button>
+                    <button onClick={() => setConfirmingMove(false)} className="px-2 text-sm text-zinc-600 dark:text-zinc-400">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  disabled={copying}
+                  onClick={() => (mode === 'move' ? setConfirmingMove(true) : runBackup())}
+                  className="w-fit rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+                >
+                  {copying
+                    ? mode === 'move'
+                      ? 'Moving…'
+                      : 'Copying…'
+                    : `Start ${mode === 'move' ? 'moving' : 'copying'} ${plan.toCopy.length} file${
+                        plan.toCopy.length === 1 ? '' : 's'
+                      }`}
+                </button>
+              )}
+            </div>
           ) : (
-            <p className="text-sm text-zinc-500">Nothing to copy — destination is already up to date.</p>
+            <p className="text-sm text-zinc-500">Nothing to {mode} — destination is already up to date.</p>
           )}
 
           {progress && (
@@ -431,7 +528,25 @@ export default function BackupPage() {
 
           {result && (
             <div className="mt-3 text-sm">
-              <p className="text-green-600 dark:text-green-400">Copied {result.copied} file(s).</p>
+              <p className="text-green-600 dark:text-green-400">
+                Copied {result.copied} file(s)
+                {result.removed > 0 && `, removed ${result.removed} original(s)`}.
+              </p>
+              {result.removeFailed.length > 0 && (
+                <details className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                  <summary className="cursor-pointer">
+                    {result.removeFailed.length} copied, but the original could not be removed — show details
+                  </summary>
+                  <ul className="mt-1 list-disc pl-4">
+                    {result.removeFailed.map((f) => (
+                      <li key={f.relPath}>
+                        {f.relPath}: {f.error}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1">These are safely at the destination; only the originals are still in place.</p>
+                </details>
+              )}
               {result.failed.length > 0 && (
                 <details className="mt-1 text-xs text-red-600 dark:text-red-400">
                   <summary className="cursor-pointer">{result.failed.length} failed — show details</summary>

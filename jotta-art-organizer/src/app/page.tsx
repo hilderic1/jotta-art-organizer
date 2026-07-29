@@ -68,7 +68,7 @@ export default function Home() {
           href="/backup"
           className="flex-1 rounded-lg border-2 border-zinc-300 px-6 py-6 text-center text-lg font-semibold hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
         >
-          Backup / copy
+          Copy / move
         </Link>
       </div>
 

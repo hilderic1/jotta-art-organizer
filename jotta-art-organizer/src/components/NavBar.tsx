@@ -3,7 +3,7 @@ import Link from 'next/link'
 const LINKS = [
   { href: '/import', label: 'Import' },
   { href: '/dedupe', label: 'Dedupe' },
-  { href: '/backup', label: 'Backup' },
+  { href: '/backup', label: 'Copy' },
   { href: '/tags', label: 'Tags' },
 ]
 
