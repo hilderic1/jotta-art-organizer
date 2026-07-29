@@ -119,6 +119,34 @@ function isPng(view: DataView): boolean {
   return bytesEqual(view, 0, PNG_SIGNATURE)
 }
 
+function indexOfZero(view: DataView, start: number, end: number): number {
+  for (let i = start; i < end; i++) {
+    if (view.getUint8(i) === 0) return i
+  }
+  return -1
+}
+
+function utf8(view: DataView, start: number, end: number): string {
+  if (end <= start) return ''
+  return new TextDecoder().decode(new Uint8Array(view.buffer, view.byteOffset + start, end - start))
+}
+
+// Shared by tEXt and iTXt: the same keywords mean the same things in both,
+// only the encoding around them differs.
+function applyPngTextKeyword(keyword: string, text: string, result: ArtworkFileMetadata): void {
+  const key = keyword.toLowerCase()
+  if (key === 'creation time') {
+    const parsed = Date.parse(text)
+    if (Number.isFinite(parsed)) result.dateTakenAtEpochSeconds = Math.round(parsed / 1000)
+  } else if (key === 'author' && text) {
+    result.authors = splitAuthors(text)
+  } else if (key === 'software' && text) {
+    result.programName = text
+  } else if (key === 'copyright' && text) {
+    result.copyright = text
+  }
+}
+
 function parsePng(view: DataView): ArtworkFileMetadata {
   const result: ArtworkFileMetadata = {}
   let offset = 8
@@ -148,19 +176,29 @@ function parsePng(view: DataView): ArtworkFileMetadata {
         }
       }
       if (nulAt !== -1) {
-        const keyword = latin1(view, dataStart, nulAt).toLowerCase()
-        const text = latin1(view, nulAt + 1, dataStart + length)
-        if (keyword === 'creation time') {
-          const parsed = Date.parse(text)
-          if (Number.isFinite(parsed)) result.dateTakenAtEpochSeconds = Math.round(parsed / 1000)
-        } else if (keyword === 'author' && text) {
-          result.authors = splitAuthors(text)
-        } else if (keyword === 'software' && text) {
-          result.programName = text
-        } else if (keyword === 'copyright' && text) {
-          result.copyright = text
+        applyPngTextKeyword(latin1(view, dataStart, nulAt), latin1(view, nulAt + 1, dataStart + length), result)
+      }
+    } else if (type === 'iTXt' && dataStart + length <= view.byteLength) {
+      // Same keywords as tEXt, wrapped in UTF-8 and language tags. Editors
+      // that write anything non-ASCII reach for this one, so handling only
+      // tEXt silently misses their dates.
+      const end = dataStart + length
+      const keywordEnd = indexOfZero(view, dataStart, end)
+      if (keywordEnd !== -1 && keywordEnd + 2 < end) {
+        const compressed = view.getUint8(keywordEnd + 1) !== 0
+        const languageEnd = indexOfZero(view, keywordEnd + 3, end)
+        const translatedEnd = languageEnd === -1 ? -1 : indexOfZero(view, languageEnd + 1, end)
+        // Compressed text needs inflate, which isn't worth pulling in for a
+        // field this rarely compressed — skipped rather than mis-read.
+        if (!compressed && translatedEnd !== -1) {
+          applyPngTextKeyword(latin1(view, dataStart, keywordEnd), utf8(view, translatedEnd + 1, end), result)
         }
       }
+    } else if (type === 'eXIf' && dataStart + length <= view.byteLength) {
+      // A whole EXIF block, byte-for-byte what a JPEG carries in APP1 minus
+      // the "Exif\0\0" prefix — so the existing TIFF reader handles it, and
+      // PNGs get DateTimeOriginal, Artist and the rest exactly as JPEGs do.
+      parseExifTiff(view, dataStart, result)
     } else if (type === 'IDAT' || type === 'IEND') {
       break // metadata chunks always precede IDAT per the PNG spec
     }
