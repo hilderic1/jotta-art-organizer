@@ -21,6 +21,9 @@ export type BatchVisionManifest = {
   // folder with hundreds of images doesn't force one giant chunk. Optional
   // for backward compatibility with manifests saved before this existed.
   pendingFiles?: PendingFile[]
+  /** Set once when the run starts, so pausing and resuming keeps the same
+   *  behaviour rather than silently reverting to skipping tagged files. */
+  reclassifyExisting?: boolean
   visitedFolders: number
   processedFiles: number
   classifiedCount: number
@@ -64,7 +67,11 @@ async function saveBatchManifest(loc: MountpointRef, batchId: string, manifest: 
   await writeJsonFile(loc, batchFolderPath(batchId), manifestFilename(), manifest)
 }
 
-export function newBatchManifest(loc: MountpointRef, rootPath: string): BatchVisionManifest {
+export function newBatchManifest(
+  loc: MountpointRef,
+  rootPath: string,
+  reclassifyExisting = false
+): BatchVisionManifest {
   const now = new Date().toISOString()
   return {
     device: loc.device,
@@ -72,6 +79,7 @@ export function newBatchManifest(loc: MountpointRef, rootPath: string): BatchVis
     rootPath,
     queue: [rootPath],
     pendingFiles: [],
+    reclassifyExisting,
     visitedFolders: 0,
     processedFiles: 0,
     classifiedCount: 0,
@@ -109,9 +117,14 @@ async function classifyWithRetry(loc: MountpointRef, path: string): Promise<Reco
 async function processFile(
   loc: MountpointRef,
   entry: PendingFile,
-  existingTags: Record<string, string[]> | undefined
+  existingTags: Record<string, string[]> | undefined,
+  reclassifyExisting: boolean
 ): Promise<FileResult> {
-  if (isFullyClassified(existingTags)) return { entry, tags: null }
+  // Normally an already-classified file is left alone so a re-run doesn't
+  // re-spend on unchanged content. That has to be overridable: when the
+  // vocabulary changes, or the image sent for classification does, every
+  // existing judgment is stale and skipping them would strand the lot.
+  if (!reclassifyExisting && isFullyClassified(existingTags)) return { entry, tags: null }
   try {
     const tags = await classifyWithRetry(loc, entry.path)
     return { entry, tags: tags ? { ...existingTags, ...tags } : null }
@@ -209,7 +222,7 @@ export async function runBatchChunk(
           cInFlight++
           const existing = store.artworks.find((a) => a.md5 === entry.md5)
           opts?.onFile?.(entry.path)
-          processFile(loc, entry, existing?.tags)
+          processFile(loc, entry, existing?.tags, manifest.reclassifyExisting === true)
             .then((result) => results.push(result))
             .finally(() => {
               cInFlight--

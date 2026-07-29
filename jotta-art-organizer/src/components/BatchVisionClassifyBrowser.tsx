@@ -41,6 +41,7 @@ export function BatchVisionClassifyBrowser({
   const [running, setRunning] = useState(false)
   const [currentFile, setCurrentFile] = useState<string | null>(null)
   const [runError, setRunError] = useState<string | null>(null)
+  const [reclassifyExisting, setReclassifyExisting] = useState(false)
   const stopRef = useRef(false)
 
   useEffect(() => {
@@ -132,7 +133,7 @@ export function BatchVisionClassifyBrowser({
   function startFresh() {
     if (!location) return
     const batchId = batchIdFor(location, path)
-    const fresh = newBatchManifest(location, path)
+    const fresh = newBatchManifest(location, path, reclassifyExisting)
     setManifest(fresh)
     runLoop(fresh, batchId)
   }
@@ -244,19 +245,37 @@ export function BatchVisionClassifyBrowser({
             {!checkingManifest && !manifestError && (
               <>
                 {manifest === null && !running && (
-                  <button
-                    onClick={startFresh}
-                    className="w-fit rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-                  >
-                    Classify this folder + subfolders
-                  </button>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex w-fit items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                      <input
+                        type="checkbox"
+                        checked={reclassifyExisting}
+                        onChange={(e) => setReclassifyExisting(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        Re-classify files that already have tags
+                        <span className="block text-zinc-400">
+                          Off by default so a re-run costs nothing on unchanged files. Turn it on after a change to
+                          the style list — existing judgments are stale then, and would otherwise be skipped forever.
+                        </span>
+                      </span>
+                    </label>
+                    <button
+                      onClick={startFresh}
+                      className="w-fit rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+                    >
+                      Classify this folder + subfolders
+                    </button>
+                  </div>
                 )}
 
                 {manifest && manifest.status === 'in_progress' && !running && (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-zinc-500">
                       Previous run in progress: {manifest.visitedFolders} folders done, {manifest.queue.length}{' '}
-                      queued, {manifest.processedFiles} files checked, {manifest.classifiedCount} classified so far.
+                      queued, {manifest.processedFiles} files checked, {manifest.classifiedCount} classified so far
+                      {manifest.reclassifyExisting ? ', re-classifying already-tagged files' : ''}.
                     </span>
                     <button
                       onClick={resume}
