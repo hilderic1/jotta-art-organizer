@@ -10,9 +10,16 @@ import {
   loadMetadataSidecar,
   deriveTagsFromMetadata,
   hasImportableTags,
+  PHOTO_TAKEN_TIME_CATEGORY_ID,
   type GooglePhotosMetadata,
 } from '@/lib/googlePhotosMetadata'
-import { readArtworkMetadata, deriveTagsFromFileMetadata, type ArtworkFileMetadata } from '@/lib/imageMetadata'
+import {
+  readArtworkMetadata,
+  deriveTagsFromFileMetadata,
+  DATE_ACQUIRED_CATEGORY_ID,
+  JOTTA_CREATED_CATEGORY_ID,
+  type ArtworkFileMetadata,
+} from '@/lib/imageMetadata'
 import {
   classifyArtwork,
   tagsFromClassification,
@@ -25,20 +32,18 @@ function segments(path: string): string[] {
   return path.split('/').filter(Boolean)
 }
 
-type Sort = 'name' | 'created-desc' | 'created-asc' | 'modified-desc'
+type Sort = 'date-desc' | 'date-asc' | 'name'
 
 // Jottacloud returns a folder in its own order, which is neither stable nor
 // meaningful — hence sorting here rather than relying on it. Name uses a
 // locale-aware numeric compare so "img2" precedes "img10".
-function sortFiles(files: JottaEntry[], sort: Sort): JottaEntry[] {
+function sortFiles(files: JottaEntry[], sort: Sort, dateOf: (f: JottaEntry) => number): JottaEntry[] {
   const sorted = [...files]
   switch (sort) {
-    case 'created-desc':
-      return sorted.sort((a, b) => jottaTime(b.created) - jottaTime(a.created))
-    case 'created-asc':
-      return sorted.sort((a, b) => jottaTime(a.created) - jottaTime(b.created))
-    case 'modified-desc':
-      return sorted.sort((a, b) => jottaTime(b.modified) - jottaTime(a.modified))
+    case 'date-desc':
+      return sorted.sort((a, b) => dateOf(b) - dateOf(a))
+    case 'date-asc':
+      return sorted.sort((a, b) => dateOf(a) - dateOf(b))
     default:
       return sorted.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
   }
@@ -83,9 +88,7 @@ export function TagAssignBrowser({
   // leap to the top the instant you tag it and shift the buttons out from
   // under the cursor.
   const [initiallyTagged, setInitiallyTagged] = useState<Set<string>>(new Set())
-  // Recently changed by default: tagging works through what you've touched
-  // most recently far more often than through an alphabet.
-  const [sort, setSort] = useState<Sort>('modified-desc')
+  const [sort, setSort] = useState<Sort>('date-desc')
 
   useEffect(() => {
     if (!location) return
@@ -246,6 +249,26 @@ export function TagAssignBrowser({
     (a, b) => Number(!initiallyTagged.has(a.id)) - Number(!initiallyTagged.has(b.id))
   )
 
+  // The best date this file has, in order of how much it actually tells you:
+  // when the picture was taken, then when it was digitised, then when it
+  // reached Jottacloud. The first two live in the tag store — reading them
+  // off the files themselves would mean a range request each, whereas these
+  // are already in memory. Untagged files fall through to Jottacloud's own
+  // timestamp, which every file has.
+  const tagsByMd5 = new Map(artworks.map((a) => [a.md5, a.tags]))
+  function dateOf(file: JottaEntry): number {
+    const tags = file.md5 ? tagsByMd5.get(file.md5) : undefined
+    const stored =
+      tags?.[PHOTO_TAKEN_TIME_CATEGORY_ID]?.[0] ??
+      tags?.[DATE_ACQUIRED_CATEGORY_ID]?.[0] ??
+      tags?.[JOTTA_CREATED_CATEGORY_ID]?.[0]
+    if (stored) {
+      const parsed = Date.parse(stored)
+      if (!Number.isNaN(parsed)) return parsed
+    }
+    return jottaTime(file.created)
+  }
+
   const crumbs = segments(path)
 
   if (!location) {
@@ -315,15 +338,18 @@ export function TagAssignBrowser({
             onChange={(e) => setSort(e.target.value as Sort)}
             className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
           >
+            <option value="date-desc">Date taken — newest</option>
+            <option value="date-asc">Date taken — oldest</option>
             <option value="name">Name</option>
-            <option value="created-desc">Newest first</option>
-            <option value="created-asc">Oldest first</option>
-            <option value="modified-desc">Recently changed</option>
           </select>
+          <span className="text-zinc-400">falls back to when the file reached Jottacloud</span>
         </div>
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {sortFiles(listing.files.filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json')), sort)
-            .map((f) => {
+          {sortFiles(
+            listing.files.filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json')),
+            sort,
+            dateOf
+          ).map((f) => {
               const tagged = artworks.find((a) => a.md5 === f.md5)
               const tagCount = tagged ? Object.values(tagged.tags).flat().length : 0
               const hasMetadata = Boolean(findMetadataSidecar(listing.files, f.name))
