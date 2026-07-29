@@ -70,6 +70,72 @@ function readExif(view: DataView, tiffStart: number): { byteOrder: string; ifd0:
   return { byteOrder: little ? 'little-endian' : 'big-endian', ifd0: first.tags, exifIfd: sub.tags }
 }
 
+const IPTC_NAMES: Record<number, string> = {
+  55: 'DateCreated',
+  60: 'TimeCreated',
+  62: 'DigitalCreationDate',
+  63: 'DigitalCreationTime',
+  80: 'By-line',
+  105: 'Headline',
+  110: 'Credit',
+  116: 'CopyrightNotice',
+  120: 'Caption',
+}
+
+// APP13 carries Photoshop image resource blocks; the one numbered 0x0404 is
+// the IPTC record, which keeps its own dates entirely separate from EXIF.
+function readPhotoshopIptc(view: DataView, start: number, end: number): { dataset: string; value: string }[] {
+  const found: { dataset: string; value: string }[] = []
+  let offset = start
+  while (offset + 12 <= end) {
+    // '8BIM'
+    if (
+      view.getUint8(offset) !== 0x38 ||
+      view.getUint8(offset + 1) !== 0x42 ||
+      view.getUint8(offset + 2) !== 0x49 ||
+      view.getUint8(offset + 3) !== 0x4d
+    ) {
+      offset++
+      continue
+    }
+    const resourceId = view.getUint16(offset + 4, false)
+    let p = offset + 6
+    const nameLength = view.getUint8(p)
+    p += 1 + nameLength
+    if ((nameLength + 1) % 2 !== 0) p += 1 // padded to even
+    if (p + 4 > end) break
+    const size = view.getUint32(p, false)
+    p += 4
+    const dataStart = p
+    const dataEnd = Math.min(dataStart + size, end)
+
+    if (resourceId === 0x0404) {
+      let q = dataStart
+      while (q + 5 <= dataEnd) {
+        if (view.getUint8(q) !== 0x1c) {
+          q++
+          continue
+        }
+        const record = view.getUint8(q + 1)
+        const dataset = view.getUint8(q + 2)
+        const length = view.getUint16(q + 3, false)
+        let value = ''
+        for (let i = q + 5; i < Math.min(q + 5 + length, dataEnd); i++) {
+          value += String.fromCharCode(view.getUint8(i))
+        }
+        found.push({
+          dataset: `${record}:${dataset} ${IPTC_NAMES[dataset] ?? ''}`.trim(),
+          value: value.slice(0, 60),
+        })
+        q += 5 + length
+      }
+    }
+
+    offset = dataEnd + (size % 2 === 1 ? 1 : 0)
+  }
+  return found
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { accessToken, username } = await requireAccessToken()
@@ -147,6 +213,13 @@ export async function GET(request: NextRequest) {
             report.exif = readExif(view, segmentStart + 6)
           } catch (err) {
             report.exifError = err instanceof Error ? err.message : 'failed'
+          }
+        }
+        if (marker === 0xed && identifier.startsWith('Photoshop')) {
+          try {
+            report.iptc = readPhotoshopIptc(view, segmentStart, segmentStart + Math.max(length - 2, 0))
+          } catch (err) {
+            report.iptcError = err instanceof Error ? err.message : 'failed'
           }
         }
         if (marker === 0xda) break
