@@ -46,6 +46,8 @@ export const KNOWN_CATEGORY_NAMES: Record<string, string> = {
   framed: 'Framed',
   mood: 'Mood',
   suggestedStyle: 'Suggested style',
+  motion: 'Motion',
+  figures: 'Figures',
 }
 
 // Auto-registers any category/value referenced in `tags` that doesn't exist

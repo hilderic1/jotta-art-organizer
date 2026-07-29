@@ -8,6 +8,8 @@ import {
   PALETTE_VALUES,
   FRAMED_VALUES,
   MOOD_VALUES,
+  MOTION_VALUES,
+  MOTION_DEFINITIONS,
 } from '@/lib/visionClassify'
 
 const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001'
@@ -40,13 +42,29 @@ const CLASSIFY_TOOL = {
         description:
           'The emotional tone, strongest first. A second may be added where the piece genuinely holds two at once (calm and dreamlike, say), but most work reads as one — do not add a second to fill the slot.',
       },
+      motion: {
+        type: 'string',
+        enum: MOTION_VALUES,
+        description: `The sense of movement the piece conveys, which is often what it is reaching for. Judge the movement the image evokes, not literal depicted action. Definitions — ${Object.entries(
+          MOTION_DEFINITIONS
+        )
+          .map(([value, meaning]) => `${value}: ${meaning}`)
+          .join('; ')}.`,
+      },
+      figures: {
+        type: 'array',
+        items: { type: 'string' },
+        maxItems: 4,
+        description:
+          'Forms discernible within the work, named in one or two words each — "bird", "face in profile", "dancer", "horse". These are frequently emergent rather than deliberately drawn: shapes that resolve out of colour and texture. Name one only where the form genuinely reads as that thing to an attentive viewer; return an empty array when nothing does, and do not manufacture figures out of incidental texture.',
+      },
       suggestedStyle: {
         type: 'string',
         description:
-          'Optional, and usually omitted. Only if no listed style genuinely describes this piece, name the missing one in two or three words. This is a proposal for review, not a classification, so leave it out whenever the listed styles already fit.',
+          'A style that genuinely describes this piece but is missing from the list, in two or three words — otherwise an empty string. Answer every time: an empty string is the expected answer and means the listed styles cover it. Do not restate a style already offered.',
       },
     },
-    required: ['style', 'subject', 'palette', 'framed', 'mood'],
+    required: ['style', 'subject', 'palette', 'framed', 'mood', 'motion', 'figures', 'suggestedStyle'],
   },
 }
 
@@ -155,6 +173,20 @@ export async function POST(request: NextRequest) {
     if (style.length === 0) style = ['Other']
 
     const mood = pick(input.mood, MOOD_VALUES, 2)
+    const motion = pick(input.motion, MOTION_VALUES, 1)[0] ?? 'Still'
+
+    // Figures are free text by design, so they get the same treatment as a
+    // suggestion: trimmed, length-capped, deduplicated, and dropped when
+    // empty. No enum to validate against — naming what's actually there is
+    // the entire point.
+    const figures = [
+      ...new Set(
+        (Array.isArray(input.figures) ? input.figures : [])
+          .filter((f): f is string => typeof f === 'string')
+          .map((f) => f.trim().slice(0, 30))
+          .filter((f) => f.length >= 2)
+      ),
+    ].slice(0, 4)
 
     // A suggestion is free text, so it gets the tightest handling of all:
     // trimmed, length-capped, and dropped if it just restates a style we
@@ -164,7 +196,7 @@ export async function POST(request: NextRequest) {
     const isRestatement = STYLE_VALUES.some((v) => v.toLowerCase() === proposed.toLowerCase())
     const suggestedStyle = proposed.length >= 3 && !isRestatement ? proposed : undefined
 
-    return NextResponse.json({ ...input, style, mood, suggestedStyle })
+    return NextResponse.json({ ...input, style, mood, motion, figures, suggestedStyle })
   } catch (err) {
     if (err instanceof Error && err.message === 'NOT_AUTHENTICATED') {
       return NextResponse.json({ error: 'Not connected to Jottacloud yet.' }, { status: 401 })

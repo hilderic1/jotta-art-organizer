@@ -16,6 +16,10 @@ export const MOOD_CATEGORY_ID = 'mood'
 // STYLE_DEFINITIONS. Kept separate so speculative words never contaminate
 // Style itself, which Browse-by-tag depends on being a stable vocabulary.
 export const SUGGESTED_STYLE_CATEGORY_ID = 'suggestedStyle'
+export const MOTION_CATEGORY_ID = 'motion'
+// Open, like the suggestions: the whole point is naming what's actually
+// there, and no fixed list could anticipate it.
+export const FIGURES_CATEGORY_ID = 'figures'
 
 // Single source of truth for the closed lists — the API route uses these
 // to constrain the model's tool call, and the tag editor uses the same
@@ -42,7 +46,20 @@ export const STYLE_DEFINITIONS: Record<string, string> = {
   'Mixed-Media': 'combines painting, photography, drawing, texture and digital technique',
   Conceptual: 'the underlying idea matters as much as the visual result',
   'Visionary/Cosmic': 'explores space, consciousness, spirituality, or the universe',
+  Figurative: 'recognisable subjects rendered representationally — studies, portraits, still life, landscape',
   Other: 'genuinely none of the above — e.g. a photograph or a non-artwork image',
+}
+
+// Much of this work is trying to convey movement, which none of the other
+// dimensions capture: two pieces can share a style, palette and mood while
+// one is dead still and the other a vortex.
+export const MOTION_DEFINITIONS: Record<string, string> = {
+  Still: 'static and settled; no sense of movement',
+  Drifting: 'slow, weightless movement, as of smoke or floating particles',
+  Flowing: 'continuous directional movement, like current or fabric',
+  Swirling: 'rotational movement; spirals, vortices, eddies',
+  Turbulent: 'violent or chaotic movement; explosive, colliding energy',
+  Radiating: 'movement outward from a centre, or bursting light',
 }
 
 // How many values each category may hold. The classifier is held to these by
@@ -54,9 +71,12 @@ export const CATEGORY_VALUE_LIMITS: Record<string, number> = {
   [SUBJECT_CATEGORY_ID]: 1,
   [PALETTE_CATEGORY_ID]: 1,
   [FRAMED_CATEGORY_ID]: 1,
+  [MOTION_CATEGORY_ID]: 1,
+  [FIGURES_CATEGORY_ID]: 4,
 }
 
 export const STYLE_VALUES = Object.keys(STYLE_DEFINITIONS)
+export const MOTION_VALUES = Object.keys(MOTION_DEFINITIONS)
 export const SUBJECT_VALUES = ['Portrait/Figure', 'Animal', 'Abstract', 'Nature/Floral', 'Cosmic/Sci-fi', 'Other']
 export const PALETTE_VALUES = ['Warm', 'Cool', 'Vibrant/Mixed', 'Monochrome']
 export const FRAMED_VALUES = ['Yes', 'No']
@@ -68,6 +88,7 @@ export const KNOWN_CLASSIFICATION_VALUES: Record<string, string[]> = {
   [PALETTE_CATEGORY_ID]: PALETTE_VALUES,
   [FRAMED_CATEGORY_ID]: FRAMED_VALUES,
   [MOOD_CATEGORY_ID]: MOOD_VALUES,
+  [MOTION_CATEGORY_ID]: MOTION_VALUES,
 }
 
 export type ArtworkClassification = {
@@ -80,6 +101,9 @@ export type ArtworkClassification = {
   palette: string
   framed: string
   mood: string[]
+  motion: string
+  /** Forms discernible within the work — often emergent rather than drawn. */
+  figures?: string[]
   /** Free text, absent unless the model judged the closed list insufficient. */
   suggestedStyle?: string
 }
@@ -120,6 +144,8 @@ export function tagsFromClassification(
     [PALETTE_CATEGORY_ID]: [c.palette],
     [FRAMED_CATEGORY_ID]: [c.framed],
     [MOOD_CATEGORY_ID]: valueList(c.mood),
+    [MOTION_CATEGORY_ID]: c.motion ? [c.motion] : [],
+    [FIGURES_CATEGORY_ID]: valueList(c.figures),
     // Always written, empty when there's nothing to suggest, so that
     // re-classifying clears a previous suggestion instead of leaving a
     // stale one attached to a piece that no longer warrants it.
@@ -137,6 +163,12 @@ export function isFullyClassified(tags: Record<string, string[]> | undefined): b
     (tags[SUBJECT_CATEGORY_ID]?.length ?? 0) > 0 &&
     (tags[PALETTE_CATEGORY_ID]?.length ?? 0) > 0 &&
     (tags[FRAMED_CATEGORY_ID]?.length ?? 0) > 0 &&
-    (tags[MOOD_CATEGORY_ID]?.length ?? 0) > 0
+    (tags[MOOD_CATEGORY_ID]?.length ?? 0) > 0 &&
+    // Motion counts: a file classified before this dimension existed isn't
+    // fully classified under the current scheme, and should be picked up by
+    // an ordinary re-run without needing the re-classify override. Figures
+    // and suggestions don't, since both are legitimately empty much of the
+    // time and requiring them would re-classify the same files forever.
+    (tags[MOTION_CATEGORY_ID]?.length ?? 0) > 0
   )
 }
