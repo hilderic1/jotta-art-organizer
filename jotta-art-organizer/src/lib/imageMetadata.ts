@@ -30,6 +30,8 @@ export type ArtworkFileMetadata = {
   editorLayersUsed?: number
   editorCanvasWidth?: number
   editorCanvasHeight?: number
+  /** From C2PA content credentials — a signed claim, not an inference. */
+  sourceType?: string
   authors?: string[]
   programName?: string
   copyright?: string
@@ -55,6 +57,24 @@ export const FILE_CHANGED_CATEGORY_ID = 'fileChanged'
 export const EDITOR_CREATED_CATEGORY_ID = 'editorCreated'
 // Whether a piece incorporates photography is something the editor knows for
 // certain, unlike the AI classifier, which can only infer it from the surface.
+// From C2PA content credentials: a signed statement of what made the file,
+// rather than a guess from its appearance. The one thing in an art library
+// that reliably separates your own work from a generated image.
+export const SOURCE_TYPE_CATEGORY_ID = 'sourceType'
+export const SOURCE_TYPE_VALUES = ['Human-made', 'AI-assisted', 'AI-generated', 'Photograph']
+
+// IPTC digital source types, mapped to plain language. Anything unrecognised
+// is kept verbatim rather than forced into one of these.
+const DIGITAL_SOURCE_TYPES: Record<string, string> = {
+  trainedAlgorithmicMedia: 'AI-generated',
+  compositeWithTrainedAlgorithmicMedia: 'AI-assisted',
+  algorithmicMedia: 'AI-generated',
+  digitalCapture: 'Photograph',
+  digitalArt: 'Human-made',
+  computationalCapture: 'Photograph',
+  humanEdits: 'Human-made',
+}
+
 export const PHOTO_USED_CATEGORY_ID = 'photoUsed'
 export const PHOTO_USED_VALUES = ['Fully drawn', 'Includes photo']
 // Banded rather than exact: a per-file millisecond count would be one value
@@ -87,6 +107,7 @@ export function hasImportableFileTags(m: ArtworkFileMetadata): boolean {
     m.editorCreatedAtEpochSeconds != null ||
     m.editorPhotosAdded != null ||
     m.editorDrawTimeMs != null ||
+    m.sourceType != null ||
     (m.authors != null && m.authors.length > 0) ||
     m.programName != null ||
     m.copyright != null
@@ -120,6 +141,9 @@ export function deriveTagsFromFileMetadata(
   }
   // Both overwrite rather than accumulate: each is a single fact about the
   // file, not a list it can gather more of.
+  if (m.sourceType) {
+    next[SOURCE_TYPE_CATEGORY_ID] = [m.sourceType]
+  }
   if (m.editorPhotosAdded != null) {
     next[PHOTO_USED_CATEGORY_ID] = [m.editorPhotosAdded > 0 ? PHOTO_USED_VALUES[1] : PHOTO_USED_VALUES[0]]
   }
@@ -271,6 +295,11 @@ function parsePng(view: DataView): ArtworkFileMetadata {
           applyPngTextKeyword(latin1(view, dataStart, keywordEnd), utf8(view, translatedEnd + 1, end), result)
         }
       }
+    } else if (type === 'caBX' && dataStart + length <= view.byteLength) {
+      // C2PA content credentials. PicsArt doesn't write these; generators and
+      // editors that support the standard do, which is exactly what makes it
+      // worth reading — it tells you which files aren't your own work.
+      applyC2pa(latin1(view, dataStart, dataStart + length), result)
     } else if (type === 'eXIf' && dataStart + length <= view.byteLength) {
       // A whole EXIF block, byte-for-byte what a JPEG carries in APP1 minus
       // the "Exif\0\0" prefix — so the existing TIFF reader handles it, and
@@ -314,6 +343,31 @@ function picsartTimestamp(description: string | undefined): number | undefined {
 // The same blob records how the piece was worked on. Note that width/height
 // here are the editing canvas, which need not match the exported file — a 640
 // canvas written out at 2000px means it was upscaled on export.
+// C2PA manifests are CBOR inside JUMBF boxes, but the fields worth having are
+// stored as plain text strings, so they can be lifted out without decoding
+// CBOR. Everything here fails soft: a manifest we can't read leaves the file
+// exactly as it was.
+function applyC2pa(manifest: string, result: ArtworkFileMetadata): void {
+  // Certificate validity dates use UTCTime (260422155105Z) and the timestamp
+  // token its own format, so an ISO pattern picks out only the assertions.
+  const iso = /(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)Z?/
+  const created = new RegExp(`c2pa\\.created[\\s\\S]{0,60}?${iso.source}`).exec(manifest) ?? iso.exec(manifest)
+  if (created?.[1]) {
+    const parsed = Date.parse(`${created[1]}Z`)
+    if (!Number.isNaN(parsed) && result.editorCreatedAtEpochSeconds == null) {
+      result.editorCreatedAtEpochSeconds = Math.round(parsed / 1000)
+    }
+  }
+
+  const sourceType = /digitalsourcetype\/([A-Za-z]+)/.exec(manifest)
+  if (sourceType?.[1]) result.sourceType = DIGITAL_SOURCE_TYPES[sourceType[1]] ?? sourceType[1]
+
+  // The generator's name sits after a CBOR length byte, hence the short
+  // wildcard rather than an exact offset.
+  const generator = /claim_generator_info[\s\S]{0,20}?dname.{0,2}?([A-Za-z][A-Za-z0-9 ._-]{3,40})/.exec(manifest)
+  if (generator?.[1] && !result.programName) result.programName = generator[1].trim()
+}
+
 function applyEditorStats(description: string | undefined, result: ArtworkFileMetadata): void {
   if (!description || !description.trimStart().startsWith('{')) return
   let data: Record<string, unknown>
