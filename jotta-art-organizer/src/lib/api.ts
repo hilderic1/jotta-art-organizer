@@ -69,6 +69,18 @@ export type JottaEntry = {
   size?: number
   state?: string
   deleted?: boolean
+  created?: string
+  modified?: string
+}
+
+// Jottacloud writes timestamps as "2016-01-25-T14:14:14Z" — a stray hyphen
+// before the T that Date rejects outright. Returns 0 for anything missing or
+// unparseable so sorts put those entries at one end instead of scattering
+// them on NaN comparisons.
+export function jottaTime(value: string | undefined): number {
+  if (!value) return 0
+  const parsed = Date.parse(value.replace('-T', 'T'))
+  return Number.isNaN(parsed) ? 0 : parsed
 }
 export type JottaFolderListing = {
   name: string

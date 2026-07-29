@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { listFolder, viewUrl, type MountpointRef, type JottaFolderListing, type JottaEntry } from '@/lib/api'
+import { listFolder, viewUrl, jottaTime, type MountpointRef, type JottaFolderListing, type JottaEntry } from '@/lib/api'
 import { LocationPicker } from './LocationPicker'
 import { Thumbnail } from './Thumbnail'
 import { KNOWN_CATEGORY_NAMES, type Category, type ArtworkTags } from '@/lib/metadata'
@@ -23,6 +23,25 @@ import {
 
 function segments(path: string): string[] {
   return path.split('/').filter(Boolean)
+}
+
+type Sort = 'name' | 'created-desc' | 'created-asc' | 'modified-desc'
+
+// Jottacloud returns a folder in its own order, which is neither stable nor
+// meaningful — hence sorting here rather than relying on it. Name uses a
+// locale-aware numeric compare so "img2" precedes "img10".
+function sortFiles(files: JottaEntry[], sort: Sort): JottaEntry[] {
+  const sorted = [...files]
+  switch (sort) {
+    case 'created-desc':
+      return sorted.sort((a, b) => jottaTime(b.created) - jottaTime(a.created))
+    case 'created-asc':
+      return sorted.sort((a, b) => jottaTime(a.created) - jottaTime(b.created))
+    case 'modified-desc':
+      return sorted.sort((a, b) => jottaTime(b.modified) - jottaTime(a.modified))
+    default:
+      return sorted.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+  }
 }
 
 // Categories fed by auto-derived metadata (dates, coordinates, eventually
@@ -64,6 +83,7 @@ export function TagAssignBrowser({
   // leap to the top the instant you tag it and shift the buttons out from
   // under the cursor.
   const [initiallyTagged, setInitiallyTagged] = useState<Set<string>>(new Set())
+  const [sort, setSort] = useState<Sort>('name')
 
   useEffect(() => {
     if (!location) return
@@ -285,9 +305,22 @@ export function TagAssignBrowser({
       )}
 
       {listing && listing.files.filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json')).length > 0 && (
+        <>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-zinc-500">Sort</span>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as Sort)}
+            className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <option value="name">Name</option>
+            <option value="created-desc">Newest first</option>
+            <option value="created-asc">Oldest first</option>
+            <option value="modified-desc">Recently changed</option>
+          </select>
+        </div>
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {listing.files
-            .filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json'))
+          {sortFiles(listing.files.filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json')), sort)
             .map((f) => {
               const tagged = artworks.find((a) => a.md5 === f.md5)
               const tagCount = tagged ? Object.values(tagged.tags).flat().length : 0
@@ -320,6 +353,7 @@ export function TagAssignBrowser({
               )
             })}
         </ul>
+        </>
       )}
 
       {editing && (

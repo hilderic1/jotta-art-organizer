@@ -52,6 +52,11 @@ export type JottaEntry = {
   size?: number
   state?: string
   deleted?: boolean
+  // Jottacloud's own timestamps, as it writes them: "2016-01-25-T14:14:14Z",
+  // with a stray hyphen before the T that Date can't parse. Kept raw here and
+  // normalised at the point of use.
+  created?: string
+  modified?: string
 }
 
 export type JottaFolderListing = {
@@ -112,6 +117,8 @@ function parseFolderXml(xml: string, requestPath: string[], opts?: { includeDele
         md5: rev?.md5,
         size: rev?.size != null ? Number(rev.size) : undefined,
         state: rev?.state,
+        created: rev?.created != null ? String(rev.created) : undefined,
+        modified: rev?.modified != null ? String(rev.modified) : undefined,
         deleted: Boolean(f['@_deleted']),
       }
     })
