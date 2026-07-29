@@ -136,7 +136,7 @@ export function TagAssignBrowser({
         // Most artwork (as opposed to actual photos) has no Google Photos
         // sidecar at all — fall back to whatever the file's own embedded
         // properties (dimensions, resolution, date) can tell us.
-        const fileMetadata = await readArtworkMetadata(location, entry.path)
+        const fileMetadata = await readArtworkMetadata(location, entry.path, { jottaCreated: entry.created })
         return { google: null, file: fileMetadata }
       })
       .then((result) => {
@@ -413,6 +413,12 @@ export function TagAssignBrowser({
                 {filePropsPreview.dateAcquiredAtEpochSeconds != null && (
                   <p>
                     📥 Acquired: {new Date(filePropsPreview.dateAcquiredAtEpochSeconds * 1000).toISOString().slice(0, 10)}
+                  </p>
+                )}
+                {filePropsPreview.jottaCreatedAtEpochSeconds != null && (
+                  <p>
+                    ☁️ Added to Jottacloud:{' '}
+                    {new Date(filePropsPreview.jottaCreatedAtEpochSeconds * 1000).toISOString().slice(0, 10)}
                   </p>
                 )}
                 {filePropsPreview.authors && filePropsPreview.authors.length > 0 && (

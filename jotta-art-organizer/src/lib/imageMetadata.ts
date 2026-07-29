@@ -4,7 +4,7 @@
 // resolution" available. Only a small byte-range prefix is fetched (headers
 // and metadata chunks/segments always precede the actual pixel data), so
 // this stays cheap even run across a very large library.
-import { viewUrl, type MountpointRef } from '@/lib/api'
+import { viewUrl, jottaTime, type MountpointRef } from '@/lib/api'
 import { PHOTO_TAKEN_TIME_CATEGORY_ID, toIsoDate } from '@/lib/googlePhotosMetadata'
 
 export type ArtworkFileMetadata = {
@@ -14,6 +14,9 @@ export type ArtworkFileMetadata = {
   yResolution?: number
   dateTakenAtEpochSeconds?: number
   dateAcquiredAtEpochSeconds?: number
+  /** Jottacloud's own timestamp for the file, not anything embedded in it —
+   *  see JOTTA_CREATED_CATEGORY_ID for why the two are kept apart. */
+  jottaCreatedAtEpochSeconds?: number
   authors?: string[]
   programName?: string
   copyright?: string
@@ -26,6 +29,11 @@ export const Y_RESOLUTION_CATEGORY_ID = 'yResolution'
 // (per user report) rather than their raw EXIF tag names, since that's the
 // property inspector people actually compare these tags against.
 export const DATE_ACQUIRED_CATEGORY_ID = 'dateAcquired'
+// Deliberately its own category rather than folded into Photo Taken Time:
+// this is when the file reached Jottacloud, which for anything uploaded in
+// bulk is one date across hundreds of works. Presenting that as the date the
+// piece was made would be worse than having no date at all.
+export const JOTTA_CREATED_CATEGORY_ID = 'jottaCreated'
 export const AUTHORS_CATEGORY_ID = 'authors'
 export const PROGRAM_NAME_CATEGORY_ID = 'programName'
 export const COPYRIGHT_CATEGORY_ID = 'copyright'
@@ -37,6 +45,7 @@ export function hasImportableFileTags(m: ArtworkFileMetadata): boolean {
     m.yResolution != null ||
     m.dateTakenAtEpochSeconds != null ||
     m.dateAcquiredAtEpochSeconds != null ||
+    m.jottaCreatedAtEpochSeconds != null ||
     (m.authors != null && m.authors.length > 0) ||
     m.programName != null ||
     m.copyright != null
@@ -67,6 +76,10 @@ export function deriveTagsFromFileMetadata(
   if (m.dateAcquiredAtEpochSeconds != null) {
     const iso = toIsoDate(m.dateAcquiredAtEpochSeconds)
     next[DATE_ACQUIRED_CATEGORY_ID] = [...new Set([...(next[DATE_ACQUIRED_CATEGORY_ID] ?? []), iso])]
+  }
+  if (m.jottaCreatedAtEpochSeconds != null) {
+    const iso = toIsoDate(m.jottaCreatedAtEpochSeconds)
+    next[JOTTA_CREATED_CATEGORY_ID] = [...new Set([...(next[JOTTA_CREATED_CATEGORY_ID] ?? []), iso])]
   }
   if (m.authors && m.authors.length > 0) {
     next[AUTHORS_CATEGORY_ID] = [...new Set([...(next[AUTHORS_CATEGORY_ID] ?? []), ...m.authors])]
@@ -380,9 +393,20 @@ export function parseEmbeddedMetadata(bytes: ArrayBuffer): ArtworkFileMetadata {
   }
 }
 
-export async function readArtworkMetadata(loc: MountpointRef, path: string): Promise<ArtworkFileMetadata | null> {
+// `jottaCreated` comes from the folder listing rather than the file, since
+// it's Jottacloud's own timestamp — passed in by callers that have the entry
+// to hand. Artwork exported from an editor frequently carries no embedded
+// date whatsoever, and then this is the only one there is.
+export async function readArtworkMetadata(
+  loc: MountpointRef,
+  path: string,
+  opts?: { jottaCreated?: string }
+): Promise<ArtworkFileMetadata | null> {
   const bytes = await fetchHeaderBytes(loc, path)
-  if (!bytes) return null
-  const meta = parseEmbeddedMetadata(bytes)
+  const meta = bytes ? parseEmbeddedMetadata(bytes) : {}
+
+  const created = jottaTime(opts?.jottaCreated)
+  if (created > 0) meta.jottaCreatedAtEpochSeconds = Math.round(created / 1000)
+
   return hasImportableFileTags(meta) ? meta : null
 }

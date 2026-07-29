@@ -112,7 +112,9 @@ async function processGroup(
     // No usable Google Photos metadata — most artwork (as opposed to actual
     // photos) has no sidecar at all. Fall back to the file's own embedded
     // properties (dimensions/resolution/date).
-    const fileMetadata = await readArtworkMetadata(loc, group.liveEntry.path)
+    const fileMetadata = await readArtworkMetadata(loc, group.liveEntry.path, {
+      jottaCreated: group.liveEntry.created,
+    })
     if (fileMetadata) {
       const derived = deriveTagsFromFileMetadata(fileMetadata, existingTags ?? {})
       const changed = JSON.stringify(derived) !== JSON.stringify(existingTags ?? {})
