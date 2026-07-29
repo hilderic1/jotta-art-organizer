@@ -43,6 +43,7 @@ export const KNOWN_CATEGORY_NAMES: Record<string, string> = {
   yResolution: 'Vertical Resolution',
   dateAcquired: 'Date Acquired',
   jottaCreated: 'Added to Jottacloud',
+  fileChanged: 'File changed',
   authors: 'Authors',
   programName: 'Program Name',
   copyright: 'Copyright',

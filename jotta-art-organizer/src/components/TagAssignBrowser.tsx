@@ -16,7 +16,6 @@ import {
 import {
   readArtworkMetadata,
   deriveTagsFromFileMetadata,
-  DATE_ACQUIRED_CATEGORY_ID,
   JOTTA_CREATED_CATEGORY_ID,
   type ArtworkFileMetadata,
 } from '@/lib/imageMetadata'
@@ -258,10 +257,7 @@ export function TagAssignBrowser({
   const tagsByMd5 = new Map(artworks.map((a) => [a.md5, a.tags]))
   function dateOf(file: JottaEntry): number {
     const tags = file.md5 ? tagsByMd5.get(file.md5) : undefined
-    const stored =
-      tags?.[PHOTO_TAKEN_TIME_CATEGORY_ID]?.[0] ??
-      tags?.[DATE_ACQUIRED_CATEGORY_ID]?.[0] ??
-      tags?.[JOTTA_CREATED_CATEGORY_ID]?.[0]
+    const stored = tags?.[PHOTO_TAKEN_TIME_CATEGORY_ID]?.[0] ?? tags?.[JOTTA_CREATED_CATEGORY_ID]?.[0]
     if (stored) {
       const parsed = Date.parse(stored)
       if (!Number.isNaN(parsed)) return parsed
@@ -441,6 +437,12 @@ export function TagAssignBrowser({
                 {filePropsPreview.dateAcquiredAtEpochSeconds != null && (
                   <p>
                     📥 Acquired: {new Date(filePropsPreview.dateAcquiredAtEpochSeconds * 1000).toISOString().slice(0, 10)}
+                  </p>
+                )}
+                {filePropsPreview.fileChangedAtEpochSeconds != null && (
+                  <p>
+                    ✏️ Changed:{' '}
+                    {new Date(filePropsPreview.fileChangedAtEpochSeconds * 1000).toISOString().slice(0, 10)}
                   </p>
                 )}
                 {filePropsPreview.jottaCreatedAtEpochSeconds != null && (
