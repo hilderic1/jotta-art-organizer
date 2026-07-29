@@ -538,7 +538,20 @@ export function TagAssignBrowser({
                         </span>
                       )}
                     </p>
-                    {isLarge ? (
+                    {category.freeText ? (
+                      // One field holding this file's own wording. No Add
+                      // button: the text *is* the value, and there's nothing
+                      // to accumulate.
+                      <input
+                        value={activeValues[0] ?? ''}
+                        onChange={(e) => {
+                          const text = e.target.value
+                          setPendingTags((prev) => ({ ...prev, [category.id]: text.trim() ? [text] : [] }))
+                        }}
+                        placeholder={`${category.name}…`}
+                        className="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                      />
+                    ) : isLarge ? (
                       <div className="flex flex-col gap-2">
                         <div className="flex flex-wrap gap-2">
                           {activeValues.length === 0 && (

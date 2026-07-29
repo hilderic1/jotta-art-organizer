@@ -39,6 +39,15 @@ export function CategoryManager({
     onChange(categories.map((c) => (c.id === categoryId ? { ...c, values: c.values.filter((v) => v !== value) } : c)))
   }
 
+  // Turning free text on discards the collected values: they're one-off
+  // entries by definition, and keeping them would leave a picker behind for a
+  // field that no longer uses one. Tags already on files are untouched.
+  function toggleFreeText(categoryId: string, freeText: boolean) {
+    onChange(
+      categories.map((c) => (c.id === categoryId ? { ...c, freeText, values: freeText ? [] : c.values } : c))
+    )
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {categories.length === 0 && <p className="text-sm text-zinc-500">No categories yet — add one below.</p>}
@@ -55,6 +64,27 @@ export function CategoryManager({
             </button>
           </div>
 
+          <label className="mb-2 flex w-fit items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+            <input
+              type="checkbox"
+              checked={category.freeText === true}
+              onChange={(e) => toggleFreeText(category.id, e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Free text
+              <span className="block text-zinc-400">
+                For per-file wording like a title or a note. You type it on each file instead of picking from a
+                list, and it isn&rsquo;t collected into a vocabulary — every entry would be unique, and Browse
+                would fill with filters matching one file each.
+              </span>
+            </span>
+          </label>
+
+          {category.freeText ? (
+            <p className="text-xs text-zinc-400">Typed per file when assigning tags.</p>
+          ) : (
+          <>
           <div className="mb-2 flex flex-wrap gap-2">
             {category.values.map((value) => (
               <span
@@ -89,6 +119,8 @@ export function CategoryManager({
               Add
             </button>
           </div>
+          </>
+          )}
         </div>
       ))}
 

@@ -6,6 +6,11 @@ export type Category = {
   id: string
   name: string
   values: string[]
+  /** Per-file prose (a title, a note) rather than a shared vocabulary. Values
+   *  aren't collected into `values`: every one would be unique, which would
+   *  turn the picker and the Browse filters into a list of one-off entries
+   *  that group nothing. */
+  freeText?: boolean
 }
 
 export type ArtworkTags = {
@@ -70,6 +75,11 @@ export function ensureCategoriesForTags(categories: Category[], tags: Record<str
       ]
       idx = next.length - 1
     }
+    // Free-text categories keep an empty vocabulary on purpose: collecting
+    // one-off titles or notes would fill the pickers and Browse filters with
+    // entries that match a single file each.
+    if (next[idx].freeText) continue
+
     // Top up the closed list even when the category already exists. Without
     // this, a category created under an older vocabulary only ever gains the
     // values that happen to get assigned, so the picker stays half-empty and
@@ -145,6 +155,10 @@ function cleanArtwork(artwork: ArtworkTags): ArtworkTags {
 function cleanCategories(categories: Category[]): Category[] {
   return categories.map((category) => {
     const canonical = KNOWN_CLASSIFICATION_VALUES[category.id]
+    // Switching a category to free text empties its vocabulary — the values
+    // collected while it was a picker are one-off entries by then, and the
+    // per-file tags themselves are untouched.
+    if (category.freeText) return { ...category, values: [] }
     return {
       ...category,
       values: canonical
