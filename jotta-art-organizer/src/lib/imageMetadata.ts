@@ -349,9 +349,19 @@ function parseExifTiff(view: DataView, tiffStart: number, result: ArtworkFileMet
   // Kept apart rather than folded together. DateTime is when software last
   // wrote the file, which for an edited image is the export — presenting that
   // as when the picture was taken would be a guess dressed up as a fact.
-  result.dateTakenAtEpochSeconds = parseExifDateTime(dateTimeOriginal)
-  result.dateAcquiredAtEpochSeconds = parseExifDateTime(dateTimeDigitized)
-  result.fileChangedAtEpochSeconds = parseExifDateTime(dateTime)
+  // Guarded like every other field here, and for a concrete reason: XMP and
+  // EXIF are both APP1 segments and XMP can come first, so assigning
+  // unconditionally let an EXIF block with no dates erase dates XMP had
+  // already supplied. A file with xmp:CreateDate and no DateTimeOriginal
+  // ended up showing no date at all.
+  const taken = parseExifDateTime(dateTimeOriginal)
+  if (taken != null) result.dateTakenAtEpochSeconds = taken
+
+  const acquired = parseExifDateTime(dateTimeDigitized)
+  if (acquired != null) result.dateAcquiredAtEpochSeconds = acquired
+
+  const changed = parseExifDateTime(dateTime)
+  if (changed != null) result.fileChangedAtEpochSeconds = changed
 }
 
 const JFIF_ID = [0x4a, 0x46, 0x49, 0x46, 0x00] // "JFIF\0"
