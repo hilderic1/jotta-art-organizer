@@ -483,18 +483,51 @@ export function TagAssignBrowser({
               )
             })()}
             <div className="flex flex-col gap-3">
-              {orderedCategories
-                .filter((cat) => cat.values.length > 0)
-                .map((category) => {
+              {/* Every category is offered here, including ones with no
+                  values yet — this is where tags are authored, so a category
+                  you just created has to be reachable. Browse still hides
+                  empty ones, where there is nothing to filter by. */}
+              {orderedCategories.map((category) => {
                   const activeValues = pendingTags[category.id] ?? []
-                  // Categories with a fixed closed list always show the full
-                  // picker, however many values they hold. The threshold is
-                  // there for open-ended categories like People or Year that
-                  // gain a value per photo — applying it to a fixed list of
-                  // ten just replaces the buttons with a box you'd have to
-                  // type an exact name into.
-                  const isLarge =
-                    category.values.length > LARGE_CATEGORY_THRESHOLD && !KNOWN_CLASSIFICATION_VALUES[category.id]
+                  // A fixed closed list always shows its full picker, however
+                  // many values it holds. The threshold is for open-ended
+                  // categories like People or Year that gain a value per
+                  // photo — applying it to a list of ten would just replace
+                  // the buttons with a box you'd have to type exact names into.
+                  const isClosedList = !!KNOWN_CLASSIFICATION_VALUES[category.id]
+                  const isLarge = !isClosedList && category.values.length > LARGE_CATEGORY_THRESHOLD
+
+                  // Open categories always get the text box, whatever their
+                  // size. Without it a new category (or any category whose
+                  // values you haven't created yet) is visible but unusable.
+                  const addInput = (
+                    <div className="flex gap-2">
+                      <input
+                        list={`category-${category.id}-values`}
+                        value={newValueDrafts[category.id] ?? ''}
+                        onChange={(e) => setNewValueDrafts((prev) => ({ ...prev, [category.id]: e.target.value }))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            addValue(category.id, newValueDrafts[category.id] ?? '')
+                          }
+                        }}
+                        placeholder={category.values.length === 0 ? `Type a ${category.name.toLowerCase()}…` : 'Add a value…'}
+                        className="flex-1 rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                      />
+                      <datalist id={`category-${category.id}-values`}>
+                        {category.values.map((value) => (
+                          <option key={value} value={value} />
+                        ))}
+                      </datalist>
+                      <button
+                        onClick={() => addValue(category.id, newValueDrafts[category.id] ?? '')}
+                        className="rounded border border-zinc-300 px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  )
                   return (
                   <div key={category.id}>
                     <p className="mb-1 text-xs font-medium text-zinc-500">
@@ -521,56 +554,35 @@ export function TagAssignBrowser({
                             </button>
                           ))}
                         </div>
-                        <div className="flex gap-2">
-                          <input
-                            list={`category-${category.id}-values`}
-                            value={newValueDrafts[category.id] ?? ''}
-                            onChange={(e) => setNewValueDrafts((prev) => ({ ...prev, [category.id]: e.target.value }))}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault()
-                                addValue(category.id, newValueDrafts[category.id] ?? '')
-                              }
-                            }}
-                            placeholder="Add a value…"
-                            className="flex-1 rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
-                          />
-                          <datalist id={`category-${category.id}-values`}>
-                            {category.values.map((value) => (
-                              <option key={value} value={value} />
-                            ))}
-                          </datalist>
-                          <button
-                            onClick={() => addValue(category.id, newValueDrafts[category.id] ?? '')}
-                            className="rounded border border-zinc-300 px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-                          >
-                            Add
-                          </button>
-                        </div>
+                        {addInput}
                         <p className="text-[11px] text-zinc-400">
                           {category.values.length} values in this category — too many to list, showing only this
                           file&rsquo;s.
                         </p>
                       </div>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {category.values.map((value) => {
-                          const active = activeValues.includes(value)
-                          return (
-                            <button
-                              key={value}
-                              onClick={() => toggleValue(category.id, value)}
-                              className={`rounded-full px-3 py-1 text-xs ${
-                                active
-                                  ? 'bg-indigo-600 text-white'
-                                  : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
-                              }`}
-                            >
-                              {value}
-                            </button>
-                          )
-                        })}
-                        {category.values.length === 0 && <span className="text-xs text-zinc-400">No values defined.</span>}
+                      <div className="flex flex-col gap-2">
+                        {category.values.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {category.values.map((value) => {
+                              const active = activeValues.includes(value)
+                              return (
+                                <button
+                                  key={value}
+                                  onClick={() => toggleValue(category.id, value)}
+                                  className={`rounded-full px-3 py-1 text-xs ${
+                                    active
+                                      ? 'bg-indigo-600 text-white'
+                                      : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                                  }`}
+                                >
+                                  {value}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                        {!isClosedList && addInput}
                       </div>
                     )}
                   </div>
