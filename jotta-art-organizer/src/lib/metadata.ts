@@ -44,6 +44,7 @@ export const KNOWN_CATEGORY_NAMES: Record<string, string> = {
   dateAcquired: 'Date Acquired',
   jottaCreated: 'Added to Jottacloud',
   fileChanged: 'File changed',
+  editorCreated: 'Created in editor',
   authors: 'Authors',
   programName: 'Program Name',
   copyright: 'Copyright',

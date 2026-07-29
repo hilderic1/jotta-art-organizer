@@ -17,6 +17,7 @@ import {
   readArtworkMetadata,
   deriveTagsFromFileMetadata,
   DATE_ACQUIRED_CATEGORY_ID,
+  EDITOR_CREATED_CATEGORY_ID,
   JOTTA_CREATED_CATEGORY_ID,
   type ArtworkFileMetadata,
 } from '@/lib/imageMetadata'
@@ -260,6 +261,9 @@ export function TagAssignBrowser({
     const tags = file.md5 ? tagsByMd5.get(file.md5) : undefined
     const stored =
       tags?.[PHOTO_TAKEN_TIME_CATEGORY_ID]?.[0] ??
+      // For work made in an editor this is the creation date, so it ranks
+      // directly behind a genuine capture time.
+      tags?.[EDITOR_CREATED_CATEGORY_ID]?.[0] ??
       // Date Acquired sits between the two on purpose: when a piece was
       // digitised is far closer to when it was made than when it happened to
       // be uploaded, so skipping it would push files to the wrong end.
@@ -463,6 +467,12 @@ export function TagAssignBrowser({
                 {filePropsPreview.dateAcquiredAtEpochSeconds != null && (
                   <p>
                     📥 Acquired: {new Date(filePropsPreview.dateAcquiredAtEpochSeconds * 1000).toISOString().slice(0, 10)}
+                  </p>
+                )}
+                {filePropsPreview.editorCreatedAtEpochSeconds != null && (
+                  <p>
+                    🎨 Created in editor:{' '}
+                    {new Date(filePropsPreview.editorCreatedAtEpochSeconds * 1000).toISOString().slice(0, 10)}
                   </p>
                 )}
                 {filePropsPreview.fileChangedAtEpochSeconds != null && (

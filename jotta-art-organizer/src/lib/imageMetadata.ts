@@ -19,6 +19,8 @@ export type ArtworkFileMetadata = {
   jottaCreatedAtEpochSeconds?: number
   /** EXIF DateTime: when software last wrote the file. */
   fileChangedAtEpochSeconds?: number
+  /** When the editing session happened, recovered from the editor's own id. */
+  editorCreatedAtEpochSeconds?: number
   authors?: string[]
   programName?: string
   copyright?: string
@@ -39,6 +41,9 @@ export const JOTTA_CREATED_CATEGORY_ID = 'jottaCreated'
 // Its own tag rather than a stand-in for Photo Taken Time: for an edited
 // image this is the export date, and the two say different things.
 export const FILE_CHANGED_CATEGORY_ID = 'fileChanged'
+// Its own tag, not Photo Taken Time: nothing was photographed, and for this
+// library it is the one date that says when the work was actually made.
+export const EDITOR_CREATED_CATEGORY_ID = 'editorCreated'
 export const AUTHORS_CATEGORY_ID = 'authors'
 export const PROGRAM_NAME_CATEGORY_ID = 'programName'
 export const COPYRIGHT_CATEGORY_ID = 'copyright'
@@ -52,6 +57,7 @@ export function hasImportableFileTags(m: ArtworkFileMetadata): boolean {
     m.dateAcquiredAtEpochSeconds != null ||
     m.jottaCreatedAtEpochSeconds != null ||
     m.fileChangedAtEpochSeconds != null ||
+    m.editorCreatedAtEpochSeconds != null ||
     (m.authors != null && m.authors.length > 0) ||
     m.programName != null ||
     m.copyright != null
@@ -82,6 +88,10 @@ export function deriveTagsFromFileMetadata(
   if (m.dateAcquiredAtEpochSeconds != null) {
     const iso = toIsoDate(m.dateAcquiredAtEpochSeconds)
     next[DATE_ACQUIRED_CATEGORY_ID] = [...new Set([...(next[DATE_ACQUIRED_CATEGORY_ID] ?? []), iso])]
+  }
+  if (m.editorCreatedAtEpochSeconds != null) {
+    const iso = toIsoDate(m.editorCreatedAtEpochSeconds)
+    next[EDITOR_CREATED_CATEGORY_ID] = [...new Set([...(next[EDITOR_CREATED_CATEGORY_ID] ?? []), iso])]
   }
   if (m.fileChangedAtEpochSeconds != null) {
     const iso = toIsoDate(m.fileChangedAtEpochSeconds)
@@ -245,6 +255,25 @@ function isJpegBytes(view: DataView): boolean {
   return bytesEqual(view, 0, [0xff, 0xd8])
 }
 
+// PicsArt writes no date tag of any kind — not DateTimeOriginal, DateTime,
+// DateTimeDigitized, IPTC or XMP (all four checked against a real export).
+// What it does write is a JSON blob of editing statistics into
+// ImageDescription, whose "uid" and "source_sid" end in the session's epoch
+// milliseconds: "…-9367310E4FE5_1573058098797". That underscore suffix is the
+// only record of when the piece was made.
+function picsartTimestamp(description: string | undefined): number | undefined {
+  if (!description || !description.includes('_')) return undefined
+  const match = /_(\d{13})\b/.exec(description)
+  if (!match) return undefined
+  const ms = Number(match[1])
+  // Sanity-bounded: a 13-digit number that isn't a plausible date is more
+  // likely a counter that happens to be that long.
+  const earliest = Date.UTC(2005, 0, 1)
+  const latest = Date.now() + 86400_000
+  if (!Number.isFinite(ms) || ms < earliest || ms > latest) return undefined
+  return Math.round(ms / 1000)
+}
+
 function parseExifDateTime(s: string | undefined): number | undefined {
   const m = s?.match(/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/)
   if (!m) return undefined
@@ -316,6 +345,7 @@ function parseExifTiff(view: DataView, tiffStart: number, result: ArtworkFileMet
     }
   }
 
+  let imageDescription: string | undefined
   let artist: string | undefined
   let software: string | undefined
   let copyright: string | undefined
@@ -325,6 +355,7 @@ function parseExifTiff(view: DataView, tiffStart: number, result: ArtworkFileMet
     else if (tag === 283 && type === 5) yRes = readRational(u32(valueFieldAbs))
     else if (tag === 296 && type === 3) resolutionUnit = u16(valueFieldAbs)
     else if (tag === 306 && type === 2) dateTime = readAscii(count, valueFieldAbs)
+    else if (tag === 270 && type === 2) imageDescription = readAscii(count, valueFieldAbs)
     else if (tag === 315 && type === 2) artist = readAscii(count, valueFieldAbs)
     else if (tag === 305 && type === 2) software = readAscii(count, valueFieldAbs)
     else if (tag === 33432 && type === 2) copyright = readAscii(count, valueFieldAbs)
@@ -358,6 +389,9 @@ function parseExifTiff(view: DataView, tiffStart: number, result: ArtworkFileMet
 
   const changed = parseExifDateTime(dateTime)
   if (changed != null) result.fileChangedAtEpochSeconds = changed
+
+  const edited = picsartTimestamp(imageDescription)
+  if (edited != null) result.editorCreatedAtEpochSeconds = edited
 }
 
 const JFIF_ID = [0x4a, 0x46, 0x49, 0x46, 0x00] // "JFIF\0"
