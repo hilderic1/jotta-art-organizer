@@ -303,7 +303,7 @@ export default function BackupPage() {
                                 checked={selectedFiles.has(f.path)}
                                 onChange={() => toggleSelectedFile(f.path)}
                               />
-                              {source && <Thumbnail loc={source.loc} path={f.path} alt={f.name} />}
+                              {source && <Thumbnail loc={source.loc} path={f.path} alt={f.name} px={64} />}
                               <span className="truncate">{f.name}</span>
                             </li>
                           ))}

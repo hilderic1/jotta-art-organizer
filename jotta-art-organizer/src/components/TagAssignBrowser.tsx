@@ -317,6 +317,27 @@ export function TagAssignBrowser({
           >
             <h3 className="mb-1 truncate font-medium">{editing.name}</h3>
 
+            {/* The tag list is long enough to scroll past the filename, and
+                the point of tagging is what the picture looks like — so keep
+                it in view. Clicking opens the full-size viewer. */}
+            {location && (
+              <a
+                href={viewUrl(location, editing.path)}
+                target="_blank"
+                rel="noreferrer"
+                className="mb-3 block"
+                title="Open full size"
+              >
+                <Thumbnail
+                  loc={location}
+                  path={editing.path}
+                  alt={editing.name}
+                  px={512}
+                  className="mx-auto max-h-48 w-auto rounded object-contain"
+                />
+              </a>
+            )}
+
             {metadataLoading && <p className="mb-3 text-xs text-zinc-500">Checking for Google Photos metadata…</p>}
             {metadataAttempted && !metadataLoading && !metadataPreview && !filePropsPreview && (
               <p className="mb-3 text-xs text-zinc-400">No Google Photos metadata or readable file properties found.</p>

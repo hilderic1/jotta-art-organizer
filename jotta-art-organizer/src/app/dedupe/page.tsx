@@ -793,6 +793,7 @@ export default function DedupePage() {
                             loc={location}
                             path={entry.path}
                             alt={entry.name}
+                            px={128}
                             className="h-16 w-16 rounded object-cover shrink-0"
                           />
                         )}
@@ -977,6 +978,7 @@ export default function DedupePage() {
                                 loc={location}
                                 path={entry.path}
                                 alt={entry.name}
+                                px={128}
                                     className="h-16 w-16 rounded object-cover cursor-pointer hover:opacity-80"
                               />
                             </button>
