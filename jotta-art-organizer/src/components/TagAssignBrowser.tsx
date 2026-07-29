@@ -469,6 +469,36 @@ export function TagAssignBrowser({
                     📥 Acquired: {new Date(filePropsPreview.dateAcquiredAtEpochSeconds * 1000).toISOString().slice(0, 10)}
                   </p>
                 )}
+                {/* How the piece was worked on, from the editor's own record.
+                    Shown rather than tagged: one-off numbers per file would
+                    sprawl the pickers without helping you browse. */}
+                {filePropsPreview.editorDrawTimeMs != null && filePropsPreview.editorDrawTimeMs > 0 && (
+                  <p>
+                    ✍️ Drawing time:{' '}
+                    {filePropsPreview.editorDrawTimeMs < 60000
+                      ? `${Math.round(filePropsPreview.editorDrawTimeMs / 1000)} sec`
+                      : `${Math.round(filePropsPreview.editorDrawTimeMs / 60000)} min`}
+                    {filePropsPreview.editorDrawActions != null && ` · ${filePropsPreview.editorDrawActions} strokes`}
+                    {filePropsPreview.editorBrushesUsed != null && ` · ${filePropsPreview.editorBrushesUsed} brushes`}
+                    {filePropsPreview.editorLayersUsed != null && ` · ${filePropsPreview.editorLayersUsed} layers`}
+                  </p>
+                )}
+                {filePropsPreview.editorPhotosAdded != null && (
+                  <p>
+                    🖼️ {filePropsPreview.editorPhotosAdded > 0
+                      ? `Includes ${filePropsPreview.editorPhotosAdded} photo(s)`
+                      : 'Fully drawn — no photo used'}
+                  </p>
+                )}
+                {filePropsPreview.editorCanvasWidth != null &&
+                  filePropsPreview.editorCanvasHeight != null &&
+                  filePropsPreview.width != null &&
+                  filePropsPreview.editorCanvasWidth !== filePropsPreview.width && (
+                    <p className="text-zinc-400">
+                      ⤢ Drawn at {filePropsPreview.editorCanvasWidth} × {filePropsPreview.editorCanvasHeight}, exported
+                      at {filePropsPreview.width} × {filePropsPreview.height}
+                    </p>
+                  )}
                 {filePropsPreview.editorCreatedAtEpochSeconds != null && (
                   <p>
                     🎨 Created in editor:{' '}

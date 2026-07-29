@@ -21,6 +21,15 @@ export type ArtworkFileMetadata = {
   fileChangedAtEpochSeconds?: number
   /** When the editing session happened, recovered from the editor's own id. */
   editorCreatedAtEpochSeconds?: number
+  // The rest of what the editor records about how a piece was made. Ground
+  // truth about the working process, which nothing else in the file carries.
+  editorPhotosAdded?: number
+  editorDrawTimeMs?: number
+  editorDrawActions?: number
+  editorBrushesUsed?: number
+  editorLayersUsed?: number
+  editorCanvasWidth?: number
+  editorCanvasHeight?: number
   authors?: string[]
   programName?: string
   copyright?: string
@@ -44,6 +53,24 @@ export const FILE_CHANGED_CATEGORY_ID = 'fileChanged'
 // Its own tag, not Photo Taken Time: nothing was photographed, and for this
 // library it is the one date that says when the work was actually made.
 export const EDITOR_CREATED_CATEGORY_ID = 'editorCreated'
+// Whether a piece incorporates photography is something the editor knows for
+// certain, unlike the AI classifier, which can only infer it from the surface.
+export const PHOTO_USED_CATEGORY_ID = 'photoUsed'
+export const PHOTO_USED_VALUES = ['Fully drawn', 'Includes photo']
+// Banded rather than exact: a per-file millisecond count would be one value
+// per artwork, which browses no better than not tagging it at all.
+export const DRAW_TIME_CATEGORY_ID = 'drawTime'
+export const DRAW_TIME_VALUES = ['Under 1 min', '1–5 min', '5–15 min', '15–60 min', '1–3 hours', 'Over 3 hours']
+
+function drawTimeBand(ms: number): string {
+  const minutes = ms / 60000
+  if (minutes < 1) return DRAW_TIME_VALUES[0]
+  if (minutes < 5) return DRAW_TIME_VALUES[1]
+  if (minutes < 15) return DRAW_TIME_VALUES[2]
+  if (minutes < 60) return DRAW_TIME_VALUES[3]
+  if (minutes < 180) return DRAW_TIME_VALUES[4]
+  return DRAW_TIME_VALUES[5]
+}
 export const AUTHORS_CATEGORY_ID = 'authors'
 export const PROGRAM_NAME_CATEGORY_ID = 'programName'
 export const COPYRIGHT_CATEGORY_ID = 'copyright'
@@ -58,6 +85,8 @@ export function hasImportableFileTags(m: ArtworkFileMetadata): boolean {
     m.jottaCreatedAtEpochSeconds != null ||
     m.fileChangedAtEpochSeconds != null ||
     m.editorCreatedAtEpochSeconds != null ||
+    m.editorPhotosAdded != null ||
+    m.editorDrawTimeMs != null ||
     (m.authors != null && m.authors.length > 0) ||
     m.programName != null ||
     m.copyright != null
@@ -88,6 +117,14 @@ export function deriveTagsFromFileMetadata(
   if (m.dateAcquiredAtEpochSeconds != null) {
     const iso = toIsoDate(m.dateAcquiredAtEpochSeconds)
     next[DATE_ACQUIRED_CATEGORY_ID] = [...new Set([...(next[DATE_ACQUIRED_CATEGORY_ID] ?? []), iso])]
+  }
+  // Both overwrite rather than accumulate: each is a single fact about the
+  // file, not a list it can gather more of.
+  if (m.editorPhotosAdded != null) {
+    next[PHOTO_USED_CATEGORY_ID] = [m.editorPhotosAdded > 0 ? PHOTO_USED_VALUES[1] : PHOTO_USED_VALUES[0]]
+  }
+  if (m.editorDrawTimeMs != null && m.editorDrawTimeMs > 0) {
+    next[DRAW_TIME_CATEGORY_ID] = [drawTimeBand(m.editorDrawTimeMs)]
   }
   if (m.editorCreatedAtEpochSeconds != null) {
     const iso = toIsoDate(m.editorCreatedAtEpochSeconds)
@@ -274,6 +311,28 @@ function picsartTimestamp(description: string | undefined): number | undefined {
   return Math.round(ms / 1000)
 }
 
+// The same blob records how the piece was worked on. Note that width/height
+// here are the editing canvas, which need not match the exported file — a 640
+// canvas written out at 2000px means it was upscaled on export.
+function applyEditorStats(description: string | undefined, result: ArtworkFileMetadata): void {
+  if (!description || !description.trimStart().startsWith('{')) return
+  let data: Record<string, unknown>
+  try {
+    data = JSON.parse(description) as Record<string, unknown>
+  } catch {
+    return // not the editor's JSON, or truncated — nothing to read
+  }
+  const num = (key: string): number | undefined => (typeof data[key] === 'number' ? (data[key] as number) : undefined)
+
+  result.editorPhotosAdded = num('photos_added')
+  result.editorDrawTimeMs = num('total_draw_time')
+  result.editorDrawActions = num('total_draw_actions')
+  result.editorBrushesUsed = num('brushes_used')
+  result.editorLayersUsed = num('layers_used')
+  result.editorCanvasWidth = num('width')
+  result.editorCanvasHeight = num('height')
+}
+
 function parseExifDateTime(s: string | undefined): number | undefined {
   const m = s?.match(/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/)
   if (!m) return undefined
@@ -392,6 +451,7 @@ function parseExifTiff(view: DataView, tiffStart: number, result: ArtworkFileMet
 
   const edited = picsartTimestamp(imageDescription)
   if (edited != null) result.editorCreatedAtEpochSeconds = edited
+  applyEditorStats(imageDescription, result)
 }
 
 const JFIF_ID = [0x4a, 0x46, 0x49, 0x46, 0x00] // "JFIF\0"
