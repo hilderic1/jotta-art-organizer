@@ -149,9 +149,15 @@ function indexOfZero(view: DataView, start: number, end: number): number {
   return -1
 }
 
+// Clamped to the buffer: only a prefix of the file is fetched, so a segment
+// header can legitimately claim a length that runs past what we hold. Reading
+// what's there beats throwing — an exception here would discard every
+// property parsed before it.
 function utf8(view: DataView, start: number, end: number): string {
-  if (end <= start) return ''
-  return new TextDecoder().decode(new Uint8Array(view.buffer, view.byteOffset + start, end - start))
+  const from = Math.max(0, Math.min(start, view.byteLength))
+  const to = Math.max(from, Math.min(end, view.byteLength))
+  if (to === from) return ''
+  return new TextDecoder().decode(new Uint8Array(view.buffer, view.byteOffset + from, to - from))
 }
 
 // Shared by tEXt and iTXt: the same keywords mean the same things in both,
@@ -470,7 +476,18 @@ export async function readArtworkMetadata(
   opts?: { jottaCreated?: string }
 ): Promise<ArtworkFileMetadata | null> {
   const bytes = await fetchHeaderBytes(loc, path)
-  const meta = bytes ? parseEmbeddedMetadata(bytes) : {}
+
+  // A malformed or truncated segment must not cost us the properties already
+  // parsed out of the file. This blanked every property on JPEGs once
+  // already, when an XMP segment declared a length past the fetched prefix.
+  let meta: ArtworkFileMetadata = {}
+  if (bytes) {
+    try {
+      meta = parseEmbeddedMetadata(bytes)
+    } catch {
+      meta = {}
+    }
+  }
 
   const created = jottaTime(opts?.jottaCreated)
   if (created > 0) meta.jottaCreatedAtEpochSeconds = Math.round(created / 1000)
