@@ -117,8 +117,11 @@ function parseFolderXml(xml: string, requestPath: string[], opts?: { includeDele
         md5: rev?.md5,
         size: rev?.size != null ? Number(rev.size) : undefined,
         state: rev?.state,
-        created: rev?.created != null ? String(rev.created) : undefined,
-        modified: rev?.modified != null ? String(rev.modified) : undefined,
+        // textOf, not String(): an element carrying any attribute parses to
+        // { '@_x': …, '#text': … }, and String() on that yields
+        // "[object Object]" — a timestamp that silently fails to parse.
+        created: textOf(rev?.created) || undefined,
+        modified: textOf(rev?.modified) || undefined,
         deleted: Boolean(f['@_deleted']),
       }
     })
