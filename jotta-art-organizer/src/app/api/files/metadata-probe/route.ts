@@ -58,7 +58,7 @@ function readExif(view: DataView, tiffStart: number): { byteOrder: string; ifd0:
       const n = u32(entry + 4)
       const valueField = entry + 8
       const report: TagReport = { tag, name: EXIF_TAG_NAMES[tag] ?? `unknown(${tag})`, type }
-      if (type === 2) report.value = ascii(n, valueField).slice(0, 60)
+      if (type === 2) report.value = ascii(n, valueField).slice(0, 1200)
       if (tag === 34665 && type === 4) exifPointer = u32(valueField)
       tags.push(report)
     }
@@ -125,7 +125,7 @@ function readPhotoshopIptc(view: DataView, start: number, end: number): { datase
         }
         found.push({
           dataset: `${record}:${dataset} ${IPTC_NAMES[dataset] ?? ''}`.trim(),
-          value: value.slice(0, 60),
+          value: value.slice(0, 1200),
         })
         q += 5 + length
       }
