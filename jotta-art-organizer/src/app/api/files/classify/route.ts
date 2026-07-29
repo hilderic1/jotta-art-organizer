@@ -10,6 +10,7 @@ import {
   MOOD_VALUES,
   MOTION_VALUES,
   MOTION_DEFINITIONS,
+  PROCESS_STYLES,
 } from '@/lib/visionClassify'
 
 const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001'
@@ -25,7 +26,9 @@ const CLASSIFY_TOOL = {
         items: { type: 'string', enum: STYLE_VALUES },
         minItems: 1,
         maxItems: 3,
-        description: `Every style that genuinely applies, most characteristic first — these overlap by nature, so one piece is commonly two or three of them. Include a style only if it is actually evident; three weak matches are worse than one accurate one. Use "Other" alone, never alongside another value, and only if none of the rest fit. Definitions — ${Object.entries(
+        description: `Every style that genuinely applies, most characteristic first — these overlap by nature, so one piece is commonly two or three of them. Include a style only if it is actually evident; three weak matches are worse than one accurate one. Use "Other" alone, never alongside another value, and only if none of the rest fit. ${PROCESS_STYLES.join(
+          ', '
+        )} describe how a work was made rather than how it looks, and no image can settle them — choose one only where the picture itself shows the evidence named in its definition, never to fill a slot, and prefer styles you can actually see. Definitions — ${Object.entries(
           STYLE_DEFINITIONS
         )
           .map(([value, meaning]) => `${value}: ${meaning}`)

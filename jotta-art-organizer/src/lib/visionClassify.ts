@@ -38,13 +38,17 @@ export const FIGURES_CATEGORY_ID = 'figures'
 // classifies against, so the short labels cost nothing in accuracy.
 export const STYLE_DEFINITIONS: Record<string, string> = {
   Abstract: 'built on colour, form, rhythm and composition rather than realistic subjects',
-  Intuitive: 'made without a predetermined plan, with instinct and emotion guiding the process',
-  Generative: 'produced partly or entirely by algorithms or code',
+  Intuitive:
+    'made without a predetermined plan — evident as gestural, spontaneous mark-making rather than deliberate construction',
+  Generative:
+    'produced partly or entirely by algorithms or code — evident as systematic repetition, fractal or mathematical patterning',
   Expressionist: 'emphasises emotion, energy and personal experience over realism',
   Surreal: 'dreamlike, symbolic, or impossible worlds',
-  Geometric: 'built around mathematical or architectural structure; constructivist',
+  Geometric:
+    'composed from geometric shapes — triangles, planes, circles, hard-edged forms — whether or not the underlying structure is mathematical or architectural',
   'Mixed-Media': 'combines painting, photography, drawing, texture and digital technique',
-  Conceptual: 'the underlying idea matters as much as the visual result',
+  Conceptual:
+    'the underlying idea matters as much as the visual result — evident as deliberate symbolic, textual or referential content',
   'Visionary/Cosmic': 'explores space, consciousness, spirituality, or the universe',
   Figurative: 'recognisable subjects rendered representationally — studies, portraits, still life, landscape',
   Other: 'genuinely none of the above — e.g. a photograph or a non-artwork image',
@@ -77,6 +81,12 @@ export const CATEGORY_VALUE_LIMITS: Record<string, number> = {
 
 export const STYLE_VALUES = Object.keys(STYLE_DEFINITIONS)
 export const MOTION_VALUES = Object.keys(MOTION_DEFINITIONS)
+
+// These three describe how a piece was made rather than how it looks, and no
+// image can settle them — only the artist knows whether a work was planned.
+// Left unqualified they attach to almost anything, crowding out the styles
+// that are actually visible, so the classifier is told to require evidence.
+export const PROCESS_STYLES = ['Intuitive', 'Conceptual', 'Generative']
 export const SUBJECT_VALUES = ['Portrait/Figure', 'Animal', 'Abstract', 'Nature/Floral', 'Cosmic/Sci-fi', 'Other']
 export const PALETTE_VALUES = ['Warm', 'Cool', 'Vibrant/Mixed', 'Monochrome']
 export const FRAMED_VALUES = ['Yes', 'No']
