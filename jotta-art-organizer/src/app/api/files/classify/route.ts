@@ -21,6 +21,16 @@ const CLASSIFY_TOOL = {
   input_schema: {
     type: 'object',
     properties: {
+      // Deliberately first: the model fills properties in schema order, so
+      // this makes it look and describe before it commits to a label. Asked
+      // for style cold, it reaches for whatever is plausible for the
+      // collection; asked what it can see first, the labels have to follow
+      // from something.
+      observation: {
+        type: 'string',
+        description:
+          'Before classifying, describe in one or two sentences what is actually visible: the dominant shapes and structure, the kind of mark-making, how the surface is treated, the colour. Everything below should follow from this description.',
+      },
       style: {
         type: 'array',
         items: { type: 'string', enum: STYLE_VALUES },
@@ -28,7 +38,7 @@ const CLASSIFY_TOOL = {
         maxItems: 3,
         description: `Every style that genuinely applies, most characteristic first — these overlap by nature, so one piece is commonly two or three of them. Include a style only if it is actually evident; three weak matches are worse than one accurate one. Use "Other" alone, never alongside another value, and only if none of the rest fit. ${PROCESS_STYLES.join(
           ', '
-        )} describe how a work was made rather than how it looks, and no image can settle them — choose one only where the picture itself shows the evidence named in its definition, never to fill a slot, and prefer styles you can actually see. Definitions — ${Object.entries(
+        )} describe how a work was made rather than how it looks, and no image can settle them — choose one only where the picture itself shows the evidence named in its definition, never to fill a slot, and prefer styles you can actually see. Where hard-edged geometric shapes — triangles, planes, circles, angular facets — are a dominant part of the composition, Geometric belongs in the list even when the surface treatment over them is painterly or textured; a painterly finish describes the handling, not the underlying structure. Definitions — ${Object.entries(
           STYLE_DEFINITIONS
         )
           .map(([value, meaning]) => `${value}: ${meaning}`)
@@ -67,7 +77,7 @@ const CLASSIFY_TOOL = {
           'A style that genuinely describes this piece but is missing from the list, in two or three words — otherwise an empty string. Answer every time: an empty string is the expected answer and means the listed styles cover it. Do not restate a style already offered.',
       },
     },
-    required: ['style', 'subject', 'palette', 'framed', 'mood', 'motion', 'figures', 'suggestedStyle'],
+    required: ['observation', 'style', 'subject', 'palette', 'framed', 'mood', 'motion', 'figures', 'suggestedStyle'],
   },
 }
 

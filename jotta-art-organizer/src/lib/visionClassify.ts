@@ -102,6 +102,10 @@ export const KNOWN_CLASSIFICATION_VALUES: Record<string, string[]> = {
 }
 
 export type ArtworkClassification = {
+  /** What the model says it sees, written before it labels anything. Shown
+   *  in the editor so a wrong classification can be traced to a misreading
+   *  of the image rather than guessed at. Not stored as a tag. */
+  observation?: string
   // Style and mood overlap by nature — a piece is readily intuitive *and*
   // expressionist *and* cosmic, and calm *and* dreamlike — so both carry
   // every value that applies instead of forcing a single winner and

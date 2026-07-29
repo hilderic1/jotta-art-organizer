@@ -453,6 +453,11 @@ export function TagAssignBrowser({
                   {classifyResult.figures && classifyResult.figures.length > 0 && (
                     <span className="ml-1">· sees {classifyResult.figures.join(', ')}</span>
                   )}
+                  {classifyResult.observation && (
+                    <span className="mt-1 block italic text-zinc-500 dark:text-zinc-500">
+                      “{classifyResult.observation}”
+                    </span>
+                  )}
                   {classifyResult.suggestedStyle && (
                     <span className="ml-1 text-amber-700 dark:text-amber-400">
                       · suggests “{classifyResult.suggestedStyle}”
