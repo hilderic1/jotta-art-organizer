@@ -17,7 +17,16 @@ export async function GET(request: NextRequest) {
 
     const pathSegments = path.split('/').filter(Boolean)
     const range = request.headers.get('range') ?? undefined
-    const res = await fetchFile(accessToken, username, device, mountpoint, pathSegments, { range })
+    let res = await fetchFile(accessToken, username, device, mountpoint, pathSegments, { range })
+
+    // Jottacloud answers 416 when a file is shorter than the requested range
+    // rather than returning the bytes it has. Callers asking for a header
+    // prefix don't care how big the file is, so serve it whole instead —
+    // otherwise this surfaced as a flat 404 and every image under the prefix
+    // size looked like it had no metadata at all.
+    if (res.status === 416 && range) {
+      res = await fetchFile(accessToken, username, device, mountpoint, pathSegments)
+    }
 
     if (!res.ok || !res.body) {
       return NextResponse.json({ error: `File not available (${res.status}).` }, { status: 404 })
