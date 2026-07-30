@@ -526,6 +526,69 @@ const EXIF_ID = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00] // "Exif\0\0"
 // before it, and its date could be erased by a later EXIF block. EXIF and the
 // PNG text chunks cover what these files actually carry.
 
+// APP13 holds Photoshop resource blocks; block 0x0404 is the IPTC record,
+// whose DateCreated (2:55) and TimeCreated (2:60) are kept separately from
+// EXIF. Some exports carry IPTC dates and no EXIF ones at all.
+function applyIptcDates(view: DataView, start: number, end: number, result: ArtworkFileMetadata): void {
+  let date: string | undefined
+  let time: string | undefined
+  let offset = start
+
+  while (offset + 12 <= end) {
+    if (
+      view.getUint8(offset) !== 0x38 || // '8'
+      view.getUint8(offset + 1) !== 0x42 || // 'B'
+      view.getUint8(offset + 2) !== 0x49 || // 'I'
+      view.getUint8(offset + 3) !== 0x4d // 'M'
+    ) {
+      offset++
+      continue
+    }
+    const resourceId = view.getUint16(offset + 4, false)
+    let p = offset + 6
+    const nameLength = view.getUint8(p)
+    p += 1 + nameLength
+    if ((nameLength + 1) % 2 !== 0) p += 1 // name is padded to an even length
+    if (p + 4 > end) break
+    const size = view.getUint32(p, false)
+    p += 4
+    const dataEnd = Math.min(p + size, end)
+
+    if (resourceId === 0x0404) {
+      let q = p
+      while (q + 5 <= dataEnd) {
+        if (view.getUint8(q) !== 0x1c) {
+          q++
+          continue
+        }
+        const dataset = view.getUint8(q + 2)
+        const length = view.getUint16(q + 3, false)
+        const value = latin1(view, q + 5, Math.min(q + 5 + length, dataEnd))
+        if (dataset === 55) date = value
+        else if (dataset === 60) time = value
+        q += 5 + length
+      }
+    }
+    offset = dataEnd + (size % 2 === 1 ? 1 : 0)
+  }
+
+  // YYYYMMDD, with HHMMSS optional. PicsArt has been seen writing 85 in the
+  // seconds field, so the time is only used when it parses cleanly.
+  const day = /^(\d{4})(\d{2})(\d{2})$/.exec(date ?? '')
+  if (!day) return
+  const clock = /^(\d{2})(\d{2})(\d{2})/.exec(time ?? '')
+  const ms = Date.UTC(
+    Number(day[1]),
+    Number(day[2]) - 1,
+    Number(day[3]),
+    clock ? Number(clock[1]) : 0,
+    clock ? Number(clock[2]) : 0,
+    clock ? Number(clock[3]) : 0
+  )
+  if (!Number.isFinite(ms)) return
+  if (result.dateTakenAtEpochSeconds == null) result.dateTakenAtEpochSeconds = Math.round(ms / 1000)
+}
+
 function parseJpeg(view: DataView): ArtworkFileMetadata {
   const result: ArtworkFileMetadata = {}
   // A JPEG keeps its C2PA manifest in APP11 rather than the caBX chunk a PNG
@@ -570,6 +633,12 @@ function parseJpeg(view: DataView): ArtworkFileMetadata {
       }
     } else if (marker === 0xe1 && segmentStart + 6 <= view.byteLength && bytesEqual(view, segmentStart, EXIF_ID)) {
       parseExifTiff(view, segmentStart + 6, result)
+    } else if (
+      marker === 0xed &&
+      segmentDataLength > 0 &&
+      latin1(view, segmentStart, Math.min(segmentStart + 13, view.byteLength)) === 'Photoshop 3.0'
+    ) {
+      applyIptcDates(view, segmentStart, Math.min(segmentStart + segmentDataLength, view.byteLength), result)
     } else if (marker === 0xeb && segmentDataLength > 0) {
       app11.push(latin1(view, segmentStart, Math.min(segmentStart + segmentDataLength, view.byteLength)))
     } else if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
