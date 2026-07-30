@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { viewUrl, type MountpointRef } from '@/lib/api'
+import type { MountpointRef } from '@/lib/api'
 import { Thumbnail } from './Thumbnail'
 import { ImageViewer } from './ImageViewer'
 import { DateRangeFilter } from './DateRangeFilter'
@@ -12,7 +12,9 @@ import { getCategoryType, isHighCardinality } from '@/lib/categoryTypes'
 export function TagFilterBrowser({ categories, artworks }: { categories: Category[]; artworks: ArtworkTags[] }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [mode, setMode] = useState<'all' | 'any'>('all')
-  const [viewingImage, setViewingImage] = useState<{ loc: MountpointRef; path: string } | null>(null)
+  // The whole record rather than just its location: opening a picture from a
+  // tag search is exactly when you want to see what it's tagged with.
+  const [viewingImage, setViewingImage] = useState<ArtworkTags | null>(null)
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set())
   // Special filters (independent of All/Any logic)
   const [dateFilters, setDateFilters] = useState<Map<string, Set<string>>>(new Map())
@@ -205,7 +207,7 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
           <ul className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-6">
             {matching.map((a) => (
               <li key={a.md5}>
-                <button onClick={() => setViewingImage({ loc: { device: a.device, mountpoint: a.mountpoint }, path: a.path })}>
+                <button onClick={() => setViewingImage(a)}>
                   <Thumbnail
                     loc={{ device: a.device, mountpoint: a.mountpoint }}
                     path={a.path}
@@ -220,7 +222,16 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
           </ul>
         </>
       )}
-      {viewingImage && <ImageViewer loc={viewingImage.loc} path={viewingImage.path} onClose={() => setViewingImage(null)} />}
+      {viewingImage && (
+        <ImageViewer
+          loc={{ device: viewingImage.device, mountpoint: viewingImage.mountpoint }}
+          path={viewingImage.path}
+          title={viewingImage.path.split('/').pop()}
+          tags={viewingImage.tags}
+          categories={categories}
+          onClose={() => setViewingImage(null)}
+        />
+      )}
     </div>
   )
 }

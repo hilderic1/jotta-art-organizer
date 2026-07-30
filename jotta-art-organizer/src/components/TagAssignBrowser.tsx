@@ -33,11 +33,15 @@ function segments(path: string): string[] {
   return path.split('/').filter(Boolean)
 }
 
-type Sort = 'date-desc' | 'date-asc' | 'name'
+type Sort = 'date-desc' | 'date-asc' | 'modified-desc' | 'name'
 
 // Jottacloud returns a folder in its own order, which is neither stable nor
 // meaningful — hence sorting here rather than relying on it. Name uses a
 // locale-aware numeric compare so "img2" precedes "img10".
+function changedAt(file: JottaEntry): number {
+  return jottaTime(file.modified) || jottaTime(file.created)
+}
+
 function sortFiles(files: JottaEntry[], sort: Sort, dateOf: (f: JottaEntry) => number): JottaEntry[] {
   const sorted = [...files]
   switch (sort) {
@@ -45,6 +49,14 @@ function sortFiles(files: JottaEntry[], sort: Sort, dateOf: (f: JottaEntry) => n
       return sorted.sort((a, b) => dateOf(b) - dateOf(a))
     case 'date-asc':
       return sorted.sort((a, b) => dateOf(a) - dateOf(b))
+    // Straight off the listing rather than the tag store, so this one answers
+    // "what have I touched lately" without needing an import first. Files with
+    // no modified time fall back to when they arrived: on the same clock, and
+    // for a file never touched since upload, arriving *is* the last change.
+    // Deliberately not the creation chain — EXIF and C2PA dates describe when
+    // the picture was made, which would strand old work uploaded recently.
+    case 'modified-desc':
+      return sorted.sort((a, b) => changedAt(b) - changedAt(a))
     default:
       return sorted.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
   }
@@ -355,11 +367,16 @@ export function TagAssignBrowser({
             onChange={(e) => setSort(e.target.value as Sort)}
             className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
           >
-            <option value="date-desc">Date taken — newest</option>
-            <option value="date-asc">Date taken — oldest</option>
+            <option value="date-desc">Created — newest</option>
+            <option value="date-asc">Created — oldest</option>
+            <option value="modified-desc">Recently changed</option>
             <option value="name">Name</option>
           </select>
-          <span className="text-zinc-400">falls back to when the file reached Jottacloud</span>
+          <span className="text-zinc-400">
+            {sort === 'modified-desc'
+              ? 'when the file last changed, or arrived if never changed'
+              : 'taken, then created, then when the file reached Jottacloud'}
+          </span>
         </div>
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {sortFiles(
