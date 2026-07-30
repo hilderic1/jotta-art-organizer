@@ -2,7 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { getSessionStatus, listFolder, type SessionStatus, type MountpointRef, type JottaEntry } from '@/lib/api'
+import {
+  getSessionStatus,
+  listFolder,
+  jottaTime,
+  type SessionStatus,
+  type MountpointRef,
+  type JottaEntry,
+} from '@/lib/api'
 import { LocationPicker } from '@/components/LocationPicker'
 import { Thumbnail } from '@/components/Thumbnail'
 
@@ -20,6 +27,28 @@ type Probe = {
   chunks?: { type: string; length: number; keyword?: string }[]
   segments?: { marker: string; length: number; identifier?: string }[]
   error?: string
+}
+
+type Sort = 'name' | 'created-desc' | 'created-asc' | 'modified-desc'
+
+function changedAt(file: JottaEntry): number {
+  return jottaTime(file.modified) || jottaTime(file.created)
+}
+
+function sortFiles(files: JottaEntry[], sort: Sort): JottaEntry[] {
+  const sorted = [...files]
+  switch (sort) {
+    case 'created-desc':
+      return sorted.sort((a, b) => jottaTime(b.created) - jottaTime(a.created))
+    case 'created-asc':
+      return sorted.sort((a, b) => jottaTime(a.created) - jottaTime(b.created))
+    // Falls back to arrival: same clock, and a file never touched since upload
+    // last changed when it landed.
+    case 'modified-desc':
+      return sorted.sort((a, b) => changedAt(b) - changedAt(a))
+    default:
+      return sorted.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+  }
 }
 
 // Turns the raw dump into the handful of statements someone actually wants:
@@ -63,6 +92,8 @@ export default function InspectPage() {
   const [location, setLocation] = useState<(MountpointRef & { path?: string }) | null>(null)
   const [files, setFiles] = useState<JottaEntry[] | null>(null)
   const [listError, setListError] = useState<string | null>(null)
+  const [sort, setSort] = useState<Sort>('name')
+  const [typedName, setTypedName] = useState('')
   const [selected, setSelected] = useState<JottaEntry | null>(null)
   const [probe, setProbe] = useState<Probe | null>(null)
   const [busy, setBusy] = useState(false)
@@ -70,6 +101,14 @@ export default function InspectPage() {
 
   useEffect(() => {
     getSessionStatus().then(setSession)
+  }, [])
+
+  useEffect(() => {
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelected(null)
+    }
+    window.addEventListener('keydown', onEscape)
+    return () => window.removeEventListener('keydown', onEscape)
   }, [])
 
   useEffect(() => {
@@ -119,6 +158,16 @@ export default function InspectPage() {
     }
   }
 
+  // Typing a name reaches files the thumbnail grid won't show — anything in a
+  // subfolder, or a format we don't list. A value containing a slash is taken
+  // as a path from the mountpoint; otherwise it's a name in this folder.
+  function inspectTyped() {
+    const typed = typedName.trim()
+    if (!typed || !location) return
+    const path = typed.includes('/') ? typed : [location.path, typed].filter(Boolean).join('/')
+    inspect({ name: path.split('/').pop() ?? typed, path, isFolder: false })
+  }
+
   if (session === null) {
     return <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">Loading…</div>
   }
@@ -150,17 +199,40 @@ export default function InspectPage() {
       {!location && <LocationPicker onSelect={setLocation} />}
 
       {location && (
-        <div className="flex items-center justify-between gap-3 text-sm">
-          <span className="truncate text-zinc-600 dark:text-zinc-400">
-            🗂 {location.path ? `${location.mountpoint}/${location.path}` : location.mountpoint}
-          </span>
-          <button
-            onClick={() => setLocation(null)}
-            className="shrink-0 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-          >
-            Change folder
-          </button>
-        </div>
+        <>
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="truncate text-zinc-600 dark:text-zinc-400">
+              🗂 {location.path ? `${location.mountpoint}/${location.path}` : location.mountpoint}
+            </span>
+            <button
+              onClick={() => setLocation(null)}
+              className="shrink-0 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+            >
+              Change folder
+            </button>
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              value={typedName}
+              onChange={(e) => setTypedName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  inspectTyped()
+                }
+              }}
+              placeholder="Or type a file name, or a path from the mountpoint…"
+              className="flex-1 rounded border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+            />
+            <button
+              onClick={inspectTyped}
+              className="rounded border border-zinc-300 px-3 py-1 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            >
+              Inspect
+            </button>
+          </div>
+        </>
       )}
 
       {listError && <p className="text-sm text-red-600 dark:text-red-400">{listError}</p>}
@@ -168,63 +240,36 @@ export default function InspectPage() {
       {files?.length === 0 && <p className="text-sm text-zinc-500">No pictures directly in this folder.</p>}
 
       {files && files.length > 0 && (
-        <ul className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-          {files.map((f) => (
-            <li key={f.path}>
-              <button
-                onClick={() => inspect(f)}
-                className={`w-full rounded-lg border p-1 ${
-                  selected?.path === f.path
-                    ? 'border-indigo-500'
-                    : 'border-zinc-200 hover:border-indigo-400 dark:border-zinc-800'
-                }`}
-                title={f.name}
-              >
-                <Thumbnail loc={location!} path={f.path} alt={f.name} px={128} className="h-16 w-full rounded object-cover" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+        <>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-zinc-500">Sort</span>
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as Sort)}
+              className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
+            >
+              <option value="name">Name</option>
+              <option value="created-desc">Newest first</option>
+              <option value="created-asc">Oldest first</option>
+              <option value="modified-desc">Recently changed</option>
+            </select>
+            <span className="text-zinc-400">{files.length} pictures</span>
+          </div>
 
-      {busy && <p className="text-sm text-zinc-500">Reading {selected?.name}…</p>}
-
-      {probe?.error && <p className="text-sm text-red-600 dark:text-red-400">{probe.error}</p>}
-
-      {probe && !probe.error && (
-        <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-          <p className="truncate text-sm font-medium">{selected?.name}</p>
-
-          {summary.length === 0 ? (
-            <p className="text-sm text-zinc-500">
-              This file records nothing about itself beyond its size — no date, no app name, no signature. That
-              isn&rsquo;t a fault in the app: there is genuinely nothing in the file to read, and the day it reached
-              Jottacloud is the only date it will ever have.
-            </p>
-          ) : (
-            <dl className="flex flex-col gap-1 text-sm">
-              {summary.map((row) => (
-                <div key={row.label} className="flex gap-2">
-                  <dt className="w-40 shrink-0 text-zinc-500">{row.label}</dt>
-                  <dd className="truncate">{row.value}</dd>
-                </div>
-              ))}
-            </dl>
-          )}
-
-          <button
-            onClick={() => setShowRaw((v) => !v)}
-            className="w-fit text-xs text-indigo-600 hover:underline dark:text-indigo-400"
-          >
-            {showRaw ? 'Hide raw details' : 'Show raw details'}
-          </button>
-
-          {showRaw && (
-            <pre className="max-h-96 overflow-auto rounded bg-zinc-50 p-2 text-[11px] leading-snug dark:bg-zinc-900">
-              {JSON.stringify(probe, null, 2)}
-            </pre>
-          )}
-        </div>
+          <ul className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+            {sortFiles(files, sort).map((f) => (
+              <li key={f.path}>
+                <button
+                  onClick={() => inspect(f)}
+                  className="w-full rounded-lg border border-zinc-200 p-1 hover:border-indigo-400 dark:border-zinc-800"
+                  title={f.name}
+                >
+                  <Thumbnail loc={location!} path={f.path} alt={f.name} px={128} className="h-16 w-full rounded object-cover" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
       <details className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -261,6 +306,83 @@ export default function InspectPage() {
           </p>
         </div>
       </details>
+
+      {selected && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setSelected(null)}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-lg flex-col gap-3 overflow-y-auto rounded-lg bg-white p-4 dark:bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <p className="truncate font-medium" title={selected.name}>
+                {selected.name}
+              </p>
+              <button onClick={() => setSelected(null)} className="shrink-0 text-sm text-zinc-500" title="Close (ESC)">
+                ✕
+              </button>
+            </div>
+
+            {location && (
+              <Thumbnail
+                loc={location}
+                path={selected.path}
+                alt={selected.name}
+                px={512}
+                className="mx-auto max-h-40 w-auto rounded object-contain"
+              />
+            )}
+
+            {busy && <p className="text-sm text-zinc-500">Reading…</p>}
+            {probe?.error && <p className="text-sm text-red-600 dark:text-red-400">{probe.error}</p>}
+
+            {probe && !probe.error && (
+              <>
+                {/* "We can't read this format" and "this file contains nothing"
+                    look identical from the outside and mean opposite things —
+                    one is our limitation, the other is the file's. */}
+                {probe.format === 'unrecognised' ? (
+                  <p className="text-sm text-amber-700 dark:text-amber-500">
+                    This app can only look inside JPEG and PNG files so far. It can&rsquo;t read a{' '}
+                    {selected.name.split('.').pop()?.toUpperCase()} yet, so this says nothing about whether the file
+                    holds a date — only that we haven&rsquo;t looked.
+                  </p>
+                ) : summary.length === 0 ? (
+                  <p className="text-sm text-zinc-500">
+                    This file records nothing about itself beyond its size — no date, no app name, no signature.
+                    That isn&rsquo;t a fault in the app: there is genuinely nothing in the file to read, and the day
+                    it reached Jottacloud is the only date it will ever have.
+                  </p>
+                ) : (
+                  <dl className="flex flex-col gap-1 text-sm">
+                    {summary.map((row) => (
+                      <div key={row.label} className="flex gap-2">
+                        <dt className="w-36 shrink-0 text-zinc-500">{row.label}</dt>
+                        <dd className="break-all">{row.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+
+                <button
+                  onClick={() => setShowRaw((v) => !v)}
+                  className="w-fit text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  {showRaw ? 'Hide raw details' : 'Show raw details'}
+                </button>
+
+                {showRaw && (
+                  <pre className="max-h-72 overflow-auto rounded bg-zinc-50 p-2 text-[11px] leading-snug dark:bg-zinc-950">
+                    {JSON.stringify(probe, null, 2)}
+                  </pre>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
