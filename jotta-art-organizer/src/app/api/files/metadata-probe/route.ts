@@ -197,6 +197,16 @@ export async function GET(request: NextRequest) {
         }
         chunks.push(entry)
 
+        // A PNG can carry a whole EXIF block in eXIf — same TIFF structure a
+        // JPEG keeps in APP1, so the same reader applies.
+        if (type === 'eXIf' && offset + 8 + length <= view.byteLength) {
+          try {
+            report.exif = readExif(view, offset + 8)
+          } catch (err) {
+            report.exifError = err instanceof Error ? err.message : 'failed'
+          }
+        }
+
         // caBX carries a C2PA / JUMBF manifest: CBOR-encoded assertions with
         // readable text mixed in. Rather than decode CBOR on spec, pull the
         // printable runs out so the actual contents can be seen first.
