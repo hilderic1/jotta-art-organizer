@@ -150,13 +150,16 @@ export function TagAssignBrowser({
           ? [...new Set(extendedListing.files.filter((f) => f.md5 === entry.md5).map((f) => f.name))]
           : [entry.name]
         const sidecar = namesToTry.map((name) => findMetadataSidecar(extendedListing.files, name)).find(Boolean)
-        const googleMetadata = sidecar ? await loadMetadataSidecar(location, sidecar) : null
-        if (googleMetadata) return { google: googleMetadata, file: null }
-        // Most artwork (as opposed to actual photos) has no Google Photos
-        // sidecar at all — fall back to whatever the file's own embedded
-        // properties (dimensions, resolution, date) can tell us.
-        const fileMetadata = await readArtworkMetadata(location, entry.path, { jottaCreated: entry.created })
-        return { google: null, file: fileMetadata }
+        // Both, not one or the other. They know different things: the sidecar
+        // has the people, the star and where Google got it; the file has the
+        // camera, the exposure and its own coordinates. Reading both costs one
+        // extra fetch for the single photo being opened — the reason batch
+        // tagging still picks one, where it would mean a fetch per file.
+        const [googleMetadata, fileMetadata] = await Promise.all([
+          sidecar ? loadMetadataSidecar(location, sidecar) : Promise.resolve(null),
+          readArtworkMetadata(location, entry.path, { jottaCreated: entry.created }),
+        ])
+        return { google: googleMetadata, file: fileMetadata }
       })
       .then((result) => {
         setMetadataPreview(result.google)
@@ -464,7 +467,10 @@ export function TagAssignBrowser({
             {metadataAttempted && !metadataLoading && !metadataPreview && !filePropsPreview && (
               <p className="mb-3 text-xs text-zinc-400">No Google Photos metadata or readable file properties found.</p>
             )}
-            {!metadataPreview && filePropsPreview && (
+            {/* Shown even when a sidecar exists: the file knows things the
+                sidecar doesn't, and a photo with people tagged still has a
+                camera and an exposure worth seeing. */}
+            {filePropsPreview && (
               <div className="mb-3 rounded-lg border border-zinc-200 p-2 text-xs dark:border-zinc-800">
                 <p className="mb-1 font-medium text-zinc-500">File properties</p>
                 {filePropsPreview.width != null && filePropsPreview.height != null && (
