@@ -489,7 +489,11 @@ export function TagAssignBrowser({
                 {filePropsPreview.sourceType && (
                   <p className="font-medium text-indigo-700 dark:text-indigo-400">
                     🔏 Content credentials: {filePropsPreview.sourceType}
+                    {filePropsPreview.credit && ` — ${filePropsPreview.credit}`}
                   </p>
+                )}
+                {!filePropsPreview.sourceType && filePropsPreview.credit && (
+                  <p>🏷️ Credit: {filePropsPreview.credit}</p>
                 )}
                 {/* How the piece was worked on, from the editor's own record.
                     Shown rather than tagged: one-off numbers per file would

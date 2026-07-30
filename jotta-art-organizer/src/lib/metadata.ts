@@ -46,6 +46,7 @@ export const KNOWN_CATEGORY_NAMES: Record<string, string> = {
   fileChanged: 'File changed',
   editorCreated: 'Created in editor',
   sourceType: 'Source type',
+  credit: 'Credit',
   photoUsed: 'Photo used',
   drawTime: 'Time drawing',
   authors: 'Authors',

@@ -32,6 +32,9 @@ export type ArtworkFileMetadata = {
   editorCanvasHeight?: number
   /** From C2PA content credentials — a signed claim, not an inference. */
   sourceType?: string
+  /** IPTC Credit — names the tool in plain language where Source type only
+   *  gives a category ("Edited with Google AI"). */
+  credit?: string
   authors?: string[]
   programName?: string
   copyright?: string
@@ -61,6 +64,7 @@ export const EDITOR_CREATED_CATEGORY_ID = 'editorCreated'
 // rather than a guess from its appearance. The one thing in an art library
 // that reliably separates your own work from a generated image.
 export const SOURCE_TYPE_CATEGORY_ID = 'sourceType'
+export const CREDIT_CATEGORY_ID = 'credit'
 // IPTC digital source types, mapped to plain language. Anything unrecognised
 // is kept verbatim rather than forced into one of these.
 const DIGITAL_SOURCE_TYPES: Record<string, string> = {
@@ -111,6 +115,7 @@ export function hasImportableFileTags(m: ArtworkFileMetadata): boolean {
     m.editorPhotosAdded != null ||
     m.editorDrawTimeMs != null ||
     m.sourceType != null ||
+    m.credit != null ||
     (m.authors != null && m.authors.length > 0) ||
     m.programName != null ||
     m.copyright != null
@@ -146,6 +151,9 @@ export function deriveTagsFromFileMetadata(
   // file, not a list it can gather more of.
   if (m.sourceType) {
     next[SOURCE_TYPE_CATEGORY_ID] = [m.sourceType]
+  }
+  if (m.credit) {
+    next[CREDIT_CATEGORY_ID] = [m.credit]
   }
   if (m.editorPhotosAdded != null) {
     next[PHOTO_USED_CATEGORY_ID] = [m.editorPhotosAdded > 0 ? PHOTO_USED_VALUES[1] : PHOTO_USED_VALUES[0]]
@@ -569,6 +577,11 @@ function applyIptcDates(view: DataView, start: number, end: number, result: Artw
         const value = latin1(view, q + 5, Math.min(q + 5 + length, dataEnd))
         if (dataset === 55) date = value
         else if (dataset === 60) time = value
+        // 2:110 Credit — who or what is to be credited for the image. Tools
+        // that edit with AI write a plain-language line here ("Edited with
+        // Google AI"), which names the actual tool where Source type only
+        // gives a category.
+        else if (dataset === 110 && value.trim() && !result.credit) result.credit = value.trim().slice(0, 80)
         q += 5 + length
       }
     }
