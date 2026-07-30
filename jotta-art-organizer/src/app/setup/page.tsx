@@ -1,14 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { setup } from '@/lib/api'
+import { setup, getSessionStatus, disconnectSession, type SessionStatus } from '@/lib/api'
+import { FolderBrowser } from '@/components/FolderBrowser'
 
 export default function SetupPage() {
   const router = useRouter()
+  const [status, setStatus] = useState<SessionStatus | null>(null)
   const [token, setToken] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    getSessionStatus().then(setStatus)
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -16,13 +22,43 @@ export default function SetupPage() {
     setError(null)
     try {
       await setup(token)
-      router.push('/')
+      router.push('/tags')
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Setup failed.')
     } finally {
       setBusy(false)
     }
+  }
+
+  // Account details and the archive browser used to live on the home page,
+  // which now goes straight to Tags. They belong here, alongside connecting
+  // and disconnecting, rather than on a landing page nobody stops at.
+  if (status?.authenticated) {
+    return (
+      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold">Jotta Art Organizer</h1>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">Connected as {status.username}</p>
+          </div>
+          <button
+            className="text-sm text-zinc-500 underline"
+            onClick={async () => {
+              await disconnectSession()
+              setStatus({ authenticated: false })
+            }}
+          >
+            Disconnect
+          </button>
+        </div>
+
+        <section>
+          <h2 className="mb-2 text-sm font-medium text-zinc-600 dark:text-zinc-400">Browse your Archive</h2>
+          <FolderBrowser />
+        </section>
+      </div>
+    )
   }
 
   return (
