@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { listFolder, viewUrl, jottaTime, type MountpointRef, type JottaFolderListing, type JottaEntry } from '@/lib/api'
 import { LocationPicker } from './LocationPicker'
 import { Thumbnail } from './Thumbnail'
+import { FileProperties } from './FileProperties'
 import { KNOWN_CATEGORY_NAMES, type Category, type ArtworkTags } from '@/lib/metadata'
 import {
   findMetadataSidecar,
@@ -16,7 +17,6 @@ import {
 import {
   readArtworkMetadata,
   deriveTagsFromFileMetadata,
-  formatExposure,
   DATE_ACQUIRED_CATEGORY_ID,
   EDITOR_CREATED_CATEGORY_ID,
   JOTTA_CREATED_CATEGORY_ID,
@@ -471,106 +471,9 @@ export function TagAssignBrowser({
                 sidecar doesn't, and a photo with people tagged still has a
                 camera and an exposure worth seeing. */}
             {filePropsPreview && (
-              <div className="mb-3 rounded-lg border border-zinc-200 p-2 text-xs dark:border-zinc-800">
-                <p className="mb-1 font-medium text-zinc-500">File properties</p>
-                {filePropsPreview.width != null && filePropsPreview.height != null && (
-                  <p>
-                    📐 {filePropsPreview.width} × {filePropsPreview.height}
-                  </p>
-                )}
-                {(filePropsPreview.xResolution != null || filePropsPreview.yResolution != null) && (
-                  <p>
-                    🔍 {filePropsPreview.xResolution ?? '?'} × {filePropsPreview.yResolution ?? '?'} DPI
-                  </p>
-                )}
-                {filePropsPreview.dateTakenAtEpochSeconds != null && (
-                  <p>
-                    📅 Taken: {new Date(filePropsPreview.dateTakenAtEpochSeconds * 1000).toISOString().slice(0, 10)}
-                  </p>
-                )}
-                {filePropsPreview.dateAcquiredAtEpochSeconds != null && (
-                  <p>
-                    📥 Acquired: {new Date(filePropsPreview.dateAcquiredAtEpochSeconds * 1000).toISOString().slice(0, 10)}
-                  </p>
-                )}
-                {filePropsPreview.camera && (
-                  <p>
-                    📷 {filePropsPreview.camera}
-                    {filePropsPreview.lens && filePropsPreview.lens !== filePropsPreview.camera && (
-                      <span className="text-zinc-400"> · {filePropsPreview.lens}</span>
-                    )}
-                  </p>
-                )}
-                {formatExposure(filePropsPreview) && (
-                  <p className="text-zinc-500">⚙️ {formatExposure(filePropsPreview)}</p>
-                )}
-                {filePropsPreview.latitude != null && filePropsPreview.longitude != null && (
-                  <p>
-                    📍 {filePropsPreview.latitude.toFixed(4)}, {filePropsPreview.longitude.toFixed(4)}
-                  </p>
-                )}
-                {filePropsPreview.sourceType && (
-                  <p className="font-medium text-indigo-700 dark:text-indigo-400">
-                    🔏 Content credentials: {filePropsPreview.sourceType}
-                    {filePropsPreview.credit && ` — ${filePropsPreview.credit}`}
-                  </p>
-                )}
-                {!filePropsPreview.sourceType && filePropsPreview.credit && (
-                  <p>🏷️ Credit: {filePropsPreview.credit}</p>
-                )}
-                {/* How the piece was worked on, from the editor's own record.
-                    Shown rather than tagged: one-off numbers per file would
-                    sprawl the pickers without helping you browse. */}
-                {filePropsPreview.editorDrawTimeMs != null && filePropsPreview.editorDrawTimeMs > 0 && (
-                  <p>
-                    ✍️ Drawing time:{' '}
-                    {filePropsPreview.editorDrawTimeMs < 60000
-                      ? `${Math.round(filePropsPreview.editorDrawTimeMs / 1000)} sec`
-                      : `${Math.round(filePropsPreview.editorDrawTimeMs / 60000)} min`}
-                    {filePropsPreview.editorDrawActions != null && ` · ${filePropsPreview.editorDrawActions} strokes`}
-                    {filePropsPreview.editorBrushesUsed != null && ` · ${filePropsPreview.editorBrushesUsed} brushes`}
-                    {filePropsPreview.editorLayersUsed != null && ` · ${filePropsPreview.editorLayersUsed} layers`}
-                  </p>
-                )}
-                {filePropsPreview.editorPhotosAdded != null && (
-                  <p>
-                    🖼️ {filePropsPreview.editorPhotosAdded > 0
-                      ? `Includes ${filePropsPreview.editorPhotosAdded} photo(s)`
-                      : 'Fully drawn — no photo used'}
-                  </p>
-                )}
-                {filePropsPreview.editorCanvasWidth != null &&
-                  filePropsPreview.editorCanvasHeight != null &&
-                  filePropsPreview.width != null &&
-                  filePropsPreview.editorCanvasWidth !== filePropsPreview.width && (
-                    <p className="text-zinc-400">
-                      ⤢ Drawn at {filePropsPreview.editorCanvasWidth} × {filePropsPreview.editorCanvasHeight}, exported
-                      at {filePropsPreview.width} × {filePropsPreview.height}
-                    </p>
-                  )}
-                {filePropsPreview.editorCreatedAtEpochSeconds != null && (
-                  <p>
-                    🎨 Created in editor:{' '}
-                    {new Date(filePropsPreview.editorCreatedAtEpochSeconds * 1000).toISOString().slice(0, 10)}
-                  </p>
-                )}
-                {filePropsPreview.fileChangedAtEpochSeconds != null && (
-                  <p>
-                    ✏️ Changed:{' '}
-                    {new Date(filePropsPreview.fileChangedAtEpochSeconds * 1000).toISOString().slice(0, 10)}
-                  </p>
-                )}
-                {filePropsPreview.jottaCreatedAtEpochSeconds != null && (
-                  <p>
-                    ☁️ Added to Jottacloud:{' '}
-                    {new Date(filePropsPreview.jottaCreatedAtEpochSeconds * 1000).toISOString().slice(0, 10)}
-                  </p>
-                )}
-                {filePropsPreview.authors && filePropsPreview.authors.length > 0 && (
-                  <p>🖋️ {filePropsPreview.authors.join(', ')}</p>
-                )}
-                {filePropsPreview.programName && <p>💻 Program: {filePropsPreview.programName}</p>}
-                {filePropsPreview.copyright && <p>© {filePropsPreview.copyright}</p>}
+              <div className="mb-3 rounded-lg border border-zinc-200 p-2 dark:border-zinc-800">
+                <p className="mb-1 text-xs font-medium text-zinc-500">File properties</p>
+                <FileProperties meta={filePropsPreview} />
                 <div className="mt-1">
                   <button
                     onClick={useFilePropsAsTags}

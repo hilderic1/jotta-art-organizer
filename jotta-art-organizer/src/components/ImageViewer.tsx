@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { viewUrl, type MountpointRef } from '@/lib/api'
+import { readArtworkMetadata, type ArtworkFileMetadata } from '@/lib/imageMetadata'
+import { FileProperties } from './FileProperties'
 
 export function ImageViewer({
   loc,
@@ -22,6 +24,24 @@ export function ImageViewer({
   categories?: { id: string; name: string }[]
 }) {
   const [loading, setLoading] = useState(true)
+  const [fileProps, setFileProps] = useState<ArtworkFileMetadata | null>(null)
+
+  // Read when a picture is opened, never for the grid behind it: one fetch for
+  // the thing being looked at is free, one per thumbnail would not be.
+  useEffect(() => {
+    let ignore = false
+    setFileProps(null)
+    readArtworkMetadata(loc, path)
+      .then((meta) => {
+        if (!ignore) setFileProps(meta)
+      })
+      .catch(() => {
+        if (!ignore) setFileProps(null)
+      })
+    return () => {
+      ignore = true
+    }
+  }, [loc, path])
 
   const nameFor = (categoryId: string) =>
     categories?.find((c) => c.id === categoryId)?.name ?? categoryId
@@ -68,7 +88,7 @@ export function ImageViewer({
           />
         </div>
 
-        {entries.length > 0 && (
+        {(entries.length > 0 || fileProps) && (
           <div className="max-h-[25vh] w-full overflow-y-auto rounded-lg bg-white/95 p-3 text-sm dark:bg-zinc-900/95 sm:max-h-[90vh] sm:w-64 sm:shrink-0">
             {title && <p className="mb-2 font-medium">{title}</p>}
             <div className="flex flex-col gap-2">
@@ -88,6 +108,13 @@ export function ImageViewer({
                 </div>
               ))}
             </div>
+
+            {fileProps && (
+              <div className="mt-3 border-t border-zinc-200 pt-2 dark:border-zinc-800">
+                <p className="mb-1 text-xs font-medium text-zinc-500">From the file</p>
+                <FileProperties meta={fileProps} />
+              </div>
+            )}
           </div>
         )}
       </div>

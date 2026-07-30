@@ -265,6 +265,9 @@ export default function InspectPage() {
                   title={f.name}
                 >
                   <Thumbnail loc={location!} path={f.path} alt={f.name} px={128} className="h-16 w-full rounded object-cover" />
+                  {/* Named, not just pictured: half the reason to open this
+                      page is that you already know which file you're after. */}
+                  <span className="mt-1 block truncate text-[11px] text-zinc-500">{f.name}</span>
                 </button>
               </li>
             ))}
