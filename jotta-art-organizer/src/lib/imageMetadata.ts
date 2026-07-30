@@ -61,18 +61,21 @@ export const EDITOR_CREATED_CATEGORY_ID = 'editorCreated'
 // rather than a guess from its appearance. The one thing in an art library
 // that reliably separates your own work from a generated image.
 export const SOURCE_TYPE_CATEGORY_ID = 'sourceType'
-export const SOURCE_TYPE_VALUES = ['Human-made', 'AI-assisted', 'AI-generated', 'Photograph']
-
 // IPTC digital source types, mapped to plain language. Anything unrecognised
 // is kept verbatim rather than forced into one of these.
 const DIGITAL_SOURCE_TYPES: Record<string, string> = {
+  // Made by a model trained on sampled content: prompt in, image out.
   trainedAlgorithmicMedia: 'AI-generated',
+  // Generated material combined with something else — a painting, a photo.
   compositeWithTrainedAlgorithmicMedia: 'AI-assisted',
-  algorithmicMedia: 'AI-generated',
+  // Produced by an algorithm *not* derived from training data: fractals,
+  // procedural work, code-driven art. Not AI, and calling it that would
+  // misfile exactly the work the Generative style describes.
+  algorithmicMedia: 'Algorithmic',
   digitalCapture: 'Photograph',
-  digitalArt: 'Human-made',
   computationalCapture: 'Photograph',
-  humanEdits: 'Human-made',
+  digitalArt: 'Human-made',
+  minorHumanEdits: 'Human-made',
 }
 
 export const PHOTO_USED_CATEGORY_ID = 'photoUsed'
