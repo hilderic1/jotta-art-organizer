@@ -154,39 +154,47 @@ export function BatchTagBrowser({
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Written for the artist, not the debugger. The formats these tags come
+          from — EXIF, IPTC, C2PA, Google Photos sidecars — are deliberately
+          not named: which container a date hides in is this app's problem, not
+          the reader's. Ordered by what someone cares about, so when and how a
+          piece was made lead, and dimensions come last. */}
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Reads every file in this folder and its subfolders, and tags each one from whatever it already carries —
-        the same as pressing &ldquo;Use as tags&rdquo; on each by hand. Nothing is written to the files themselves.
-        Safe to pause and resume at any point.
+        Goes through every picture in this folder and fills in what your files already know about themselves — so
+        you don&rsquo;t have to type it in one at a time.
+      </p>
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        Most pictures carry a hidden record of their own history. This reads it and turns it into tags you can
+        browse by:
       </p>
       <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-600 dark:text-zinc-400">
         <li>
-          <span className="font-medium">Google Photos sidecars</span> — a matching{' '}
-          <code className="text-xs">supplemental-metadata.json</code> gives People, Favorited, Year, Date Created
-          and Source.
+          <span className="font-medium">When you made it</span> — the date from the camera or the app you drew in.
+          Where a piece has no date of its own, the day it arrived in Jottacloud is used instead, kept separate so
+          you always know which is which.
         </li>
         <li>
-          <span className="font-medium">Dates from the file</span> — Photo Taken Time, Date Acquired and File
-          changed, read from EXIF and IPTC. Where a file records none, the date it reached Jottacloud is used
-          instead, kept as its own tag so it&rsquo;s never mistaken for when the work was made.
+          <span className="font-medium">How you made it</span> — for Picsart work, how long you spent drawing, and
+          whether you started from a photo or a blank canvas.
         </li>
         <li>
-          <span className="font-medium">Editor history</span> — artwork exported from Picsart carries the date of
-          the session that made it, how long it was drawn for, and whether a photo was used.
+          <span className="font-medium">Whether AI was involved</span> — some apps sign their work when AI has
+          touched it. Those pieces get labelled, so your own hand stays distinguishable from anything generated or
+          retouched.
         </li>
         <li>
-          <span className="font-medium">Content credentials</span> — files signed with C2PA declare how they were
-          made, giving Source type (AI-generated, AI-assisted) and Credit.
+          <span className="font-medium">Who&rsquo;s in it</span> — for photos backed up from Google Photos, the
+          people, favourites and places it already recorded.
         </li>
         <li>
-          <span className="font-medium">File properties</span> — dimensions, resolution, program name, authors and
-          copyright.
+          <span className="font-medium">The basics</span> — size, resolution, and which app made it.
         </li>
       </ul>
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Also checks recently soft-deleted duplicates: if a sidecar only matches a filename that a past dedupe run
-        removed as a duplicate, its tags are still attached to whichever identical copy is still here — nothing
-        needs restoring.
+        Your files are never modified — the tags live in this app&rsquo;s own database.
+      </p>
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        Takes a while on a big folder. Pause whenever you like; it picks up where it stopped.
       </p>
 
       {location === null ? (
