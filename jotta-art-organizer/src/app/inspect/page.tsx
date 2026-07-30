@@ -12,6 +12,8 @@ import {
 } from '@/lib/api'
 import { LocationPicker } from '@/components/LocationPicker'
 import { Thumbnail } from '@/components/Thumbnail'
+import { FileProperties } from '@/components/FileProperties'
+import { readArtworkMetadata, type ArtworkFileMetadata } from '@/lib/imageMetadata'
 
 type Probe = {
   file: string
@@ -51,41 +53,10 @@ function sortFiles(files: JottaEntry[], sort: Sort): JottaEntry[] {
   }
 }
 
-// Turns the raw dump into the handful of statements someone actually wants:
-// which dates this file carries, what made it, whether AI signed it.
-function summarise(probe: Probe): { label: string; value: string }[] {
-  const found: { label: string; value: string }[] = []
-  const tags = [...(probe.exif?.ifd0 ?? []), ...(probe.exif?.exifIfd ?? [])]
-  const tagValue = (name: string) => tags.find((t) => t.name === name)?.value
-
-  const taken = tagValue('DateTimeOriginal')
-  if (taken) found.push({ label: 'Date taken', value: taken })
-
-  const changed = tagValue('DateTime')
-  if (changed && changed !== taken) found.push({ label: 'Last changed', value: changed })
-
-  const iptcDate = probe.iptc?.find((i) => i.dataset.includes('DateCreated'))?.value
-  if (iptcDate && !taken) found.push({ label: 'Date created', value: iptcDate })
-
-  const software = tagValue('Software')
-  if (software) found.push({ label: 'Made with', value: software })
-
-  const credit = probe.iptc?.find((i) => i.dataset.includes('Credit'))?.value
-  if (credit) found.push({ label: 'Credit', value: credit })
-
-  const manifest = (probe.c2paStrings ?? []).join(' ')
-  const sourceType = /digitalsourcetype\/([A-Za-z]+)/.exec(manifest)?.[1]
-  if (sourceType) found.push({ label: 'Content credentials', value: sourceType })
-
-  // The editor's own session record, where the only date on older artwork hides.
-  const description = tagValue('ImageDescription')
-  const session = description ? /_(\d{13})\b/.exec(description)?.[1] : undefined
-  if (session) {
-    found.push({ label: 'Editing session', value: new Date(Number(session)).toISOString().slice(0, 10) })
-  }
-
-  return found
-}
+// The summary comes from the same reader the rest of the app uses, rather
+// than a second interpretation of the raw dump. A bespoke one here drifted
+// immediately: it reported "Made with 9.0.2" — the iOS version — while the
+// camera, coordinates and exposure sat unread in the very same bytes.
 
 export default function InspectPage() {
   const [session, setSession] = useState<SessionStatus | null>(null)
@@ -96,6 +67,7 @@ export default function InspectPage() {
   const [typedName, setTypedName] = useState('')
   const [selected, setSelected] = useState<JottaEntry | null>(null)
   const [probe, setProbe] = useState<Probe | null>(null)
+  const [fileProps, setFileProps] = useState<ArtworkFileMetadata | null>(null)
   const [busy, setBusy] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
 
@@ -136,6 +108,7 @@ export default function InspectPage() {
     if (!location) return
     setSelected(file)
     setProbe(null)
+    setFileProps(null)
     setShowRaw(false)
     setBusy(true)
     try {
@@ -144,8 +117,14 @@ export default function InspectPage() {
         mountpoint: location.mountpoint,
         path: file.path,
       })
-      const res = await fetch(`/api/files/metadata-probe?${params.toString()}`)
+      // The reader for the summary, the probe for the raw view. Both read the
+      // same bytes; only the probe reports the file's structure.
+      const [res, meta] = await Promise.all([
+        fetch(`/api/files/metadata-probe?${params.toString()}`),
+        readArtworkMetadata(location, file.path, { jottaCreated: file.created }),
+      ])
       setProbe(await res.json())
+      setFileProps(meta)
     } catch (err) {
       setProbe({
         file: file.path,
@@ -183,7 +162,7 @@ export default function InspectPage() {
     )
   }
 
-  const summary = probe && !probe.error ? summarise(probe) : []
+  
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
@@ -352,21 +331,14 @@ export default function InspectPage() {
                     {selected.name.split('.').pop()?.toUpperCase()} yet, so this says nothing about whether the file
                     holds a date — only that we haven&rsquo;t looked.
                   </p>
-                ) : summary.length === 0 ? (
+                ) : !fileProps ? (
                   <p className="text-sm text-zinc-500">
                     This file records nothing about itself beyond its size — no date, no app name, no signature.
                     That isn&rsquo;t a fault in the app: there is genuinely nothing in the file to read, and the day
                     it reached Jottacloud is the only date it will ever have.
                   </p>
                 ) : (
-                  <dl className="flex flex-col gap-1 text-sm">
-                    {summary.map((row) => (
-                      <div key={row.label} className="flex gap-2">
-                        <dt className="w-36 shrink-0 text-zinc-500">{row.label}</dt>
-                        <dd className="break-all">{row.value}</dd>
-                      </div>
-                    ))}
-                  </dl>
+                  <FileProperties meta={fileProps} className="text-sm" />
                 )}
 
                 <button
