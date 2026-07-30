@@ -93,7 +93,7 @@ export function BatchTagBrowser({
         setManifestError(null)
       })
       .catch((err) => {
-        if (!ignore) setManifestError(err instanceof Error ? err.message : 'Failed to check for a previous import.')
+        if (!ignore) setManifestError(err instanceof Error ? err.message : 'Failed to check for a previous run.')
       })
     return () => {
       ignore = true
@@ -124,7 +124,7 @@ export function BatchTagBrowser({
       setRunError(
         err instanceof Error
           ? `${err.message} — progress up to the last checkpoint is saved; you can resume.`
-          : 'Import failed — progress up to the last checkpoint is saved; you can resume.'
+          : 'Tagging failed — progress up to the last checkpoint is saved; you can resume.'
       )
     } finally {
       setRunning(false)
@@ -155,11 +155,34 @@ export function BatchTagBrowser({
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Scans this folder and every subfolder for photos/videos with a matching Google Photos{' '}
-        <code className="text-xs">supplemental-metadata.json</code>, and applies People, Favorited, Year, Date
-        Created and Source as tags automatically — the same as pressing &ldquo;Use as tags&rdquo; on each one by
-        hand. Nothing is written to the files themselves. Safe to pause and resume at any point.
+        Reads every file in this folder and its subfolders, and tags each one from whatever it already carries —
+        the same as pressing &ldquo;Use as tags&rdquo; on each by hand. Nothing is written to the files themselves.
+        Safe to pause and resume at any point.
       </p>
+      <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-600 dark:text-zinc-400">
+        <li>
+          <span className="font-medium">Google Photos sidecars</span> — a matching{' '}
+          <code className="text-xs">supplemental-metadata.json</code> gives People, Favorited, Year, Date Created
+          and Source.
+        </li>
+        <li>
+          <span className="font-medium">Dates from the file</span> — Photo Taken Time, Date Acquired and File
+          changed, read from EXIF and IPTC. Where a file records none, the date it reached Jottacloud is used
+          instead, kept as its own tag so it&rsquo;s never mistaken for when the work was made.
+        </li>
+        <li>
+          <span className="font-medium">Editor history</span> — artwork exported from Picsart carries the date of
+          the session that made it, how long it was drawn for, and whether a photo was used.
+        </li>
+        <li>
+          <span className="font-medium">Content credentials</span> — files signed with C2PA declare how they were
+          made, giving Source type (AI-generated, AI-assisted) and Credit.
+        </li>
+        <li>
+          <span className="font-medium">File properties</span> — dimensions, resolution, program name, authors and
+          copyright.
+        </li>
+      </ul>
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
         Also checks recently soft-deleted duplicates: if a sidecar only matches a filename that a past dedupe run
         removed as a duplicate, its tags are still attached to whichever identical copy is still here — nothing
@@ -242,7 +265,7 @@ export function BatchTagBrowser({
           )}
 
           <div className="flex flex-col gap-2 rounded-lg border border-zinc-200 px-3 py-3 dark:border-zinc-800">
-            {checkingManifest && <p className="text-xs text-zinc-500">Checking for a previous import…</p>}
+            {checkingManifest && <p className="text-xs text-zinc-500">Checking for a previous run…</p>}
             {manifestError && <p className="text-xs text-red-600 dark:text-red-400">{manifestError}</p>}
 
             {!checkingManifest && !manifestError && (
@@ -252,14 +275,14 @@ export function BatchTagBrowser({
                     onClick={startFresh}
                     className="w-fit rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
                   >
-                    Import tags for this folder + subfolders
+                    Tag this folder + subfolders
                   </button>
                 )}
 
                 {manifest && manifest.status === 'in_progress' && !running && (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-zinc-500">
-                      Previous import in progress: {manifest.visitedFolders} folders done,{' '}
+                      Previous run in progress: {manifest.visitedFolders} folders done,{' '}
                       {manifest.queue.length} queued, {manifest.processedFiles} files checked,{' '}
                       {manifest.taggedCount} tagged so far.
                     </span>
@@ -267,7 +290,7 @@ export function BatchTagBrowser({
                       onClick={resume}
                       className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500"
                     >
-                      Resume import
+                      Resume tagging
                     </button>
                     <button
                       onClick={startFresh}
@@ -281,7 +304,7 @@ export function BatchTagBrowser({
                 {running && (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-zinc-500 truncate">
-                      Importing… {manifest?.visitedFolders ?? 0} folders done, {manifest?.queue.length ?? 0} queued,{' '}
+                      Tagging… {manifest?.visitedFolders ?? 0} folders done, {manifest?.queue.length ?? 0} queued,{' '}
                       {manifest?.processedFiles ?? 0} files checked, {manifest?.taggedCount ?? 0} tagged
                       {currentFile ? ` — ${currentFile}` : ''}
                     </span>

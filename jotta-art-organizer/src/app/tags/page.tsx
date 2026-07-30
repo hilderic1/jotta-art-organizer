@@ -255,7 +255,7 @@ export default function TagsPage() {
           [
             ['assign', 'Assign tags'],
             ['browse', 'Browse by tag'],
-            ['batch', 'Batch import'],
+            ['batch', 'Batch tagging'],
             ['classify', 'AI Classify'],
             ['categories', 'Categories'],
           ] as [Mode, string][]
