@@ -16,6 +16,7 @@ import {
 import {
   readArtworkMetadata,
   deriveTagsFromFileMetadata,
+  formatExposure,
   DATE_ACQUIRED_CATEGORY_ID,
   EDITOR_CREATED_CATEGORY_ID,
   JOTTA_CREATED_CATEGORY_ID,
@@ -486,7 +487,17 @@ export function TagAssignBrowser({
                     📥 Acquired: {new Date(filePropsPreview.dateAcquiredAtEpochSeconds * 1000).toISOString().slice(0, 10)}
                   </p>
                 )}
-                {filePropsPreview.camera && <p>📷 {filePropsPreview.camera}</p>}
+                {filePropsPreview.camera && (
+                  <p>
+                    📷 {filePropsPreview.camera}
+                    {filePropsPreview.lens && filePropsPreview.lens !== filePropsPreview.camera && (
+                      <span className="text-zinc-400"> · {filePropsPreview.lens}</span>
+                    )}
+                  </p>
+                )}
+                {formatExposure(filePropsPreview) && (
+                  <p className="text-zinc-500">⚙️ {formatExposure(filePropsPreview)}</p>
+                )}
                 {filePropsPreview.latitude != null && filePropsPreview.longitude != null && (
                   <p>
                     📍 {filePropsPreview.latitude.toFixed(4)}, {filePropsPreview.longitude.toFixed(4)}

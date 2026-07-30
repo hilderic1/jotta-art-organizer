@@ -40,6 +40,14 @@ export type ArtworkFileMetadata = {
   longitude?: number
   /** Make and model together: "Apple iPhone 6 Plus". */
   camera?: string
+  // Shown in the properties panel, deliberately never tagged: these are
+  // near-unique per frame, so as tags they would fill Browse with values
+  // matching a single photo each.
+  exposureTime?: number
+  fNumber?: number
+  iso?: number
+  focalLength?: number
+  lens?: string
   authors?: string[]
   programName?: string
   copyright?: string
@@ -107,6 +115,20 @@ function drawTimeBand(ms: number): string {
 export const AUTHORS_CATEGORY_ID = 'authors'
 export const PROGRAM_NAME_CATEGORY_ID = 'programName'
 export const COPYRIGHT_CATEGORY_ID = 'copyright'
+
+// "f/2.2 · 1/120 · ISO 32 · 4.2mm" — the way a photographer reads a frame,
+// rather than four separate rows of decimals. Returns empty when the file
+// carries none of it, which is most artwork.
+export function formatExposure(m: ArtworkFileMetadata): string {
+  const parts: string[] = []
+  if (m.fNumber != null) parts.push(`f/${m.fNumber.toFixed(1).replace(/\.0$/, '')}`)
+  if (m.exposureTime != null) {
+    parts.push(m.exposureTime >= 1 ? `${m.exposureTime.toFixed(1)}s` : `1/${Math.round(1 / m.exposureTime)}`)
+  }
+  if (m.iso != null) parts.push(`ISO ${m.iso}`)
+  if (m.focalLength != null) parts.push(`${m.focalLength.toFixed(1).replace(/\.0$/, '')}mm`)
+  return parts.join(' · ')
+}
 
 export function hasImportableFileTags(m: ArtworkFileMetadata): boolean {
   return (
@@ -561,6 +583,14 @@ function parseExifTiff(view: DataView, tiffStart: number, result: ArtworkFileMet
     readIfd(exifIfdRelOffset, (tag, type, count, valueFieldAbs) => {
       if (tag === 36867 && type === 2) dateTimeOriginal = readAscii(count, valueFieldAbs)
       else if (tag === 36868 && type === 2) dateTimeDigitized = readAscii(count, valueFieldAbs)
+      // Shown, never tagged: aperture and shutter speed are near-unique per
+      // frame, so as tags they'd fill Browse with values matching one photo
+      // each — the same reason titles are free text.
+      else if (tag === 33434 && type === 5) result.exposureTime = readRational(u32(valueFieldAbs))
+      else if (tag === 33437 && type === 5) result.fNumber = readRational(u32(valueFieldAbs))
+      else if (tag === 34855 && type === 3) result.iso = u16(valueFieldAbs)
+      else if (tag === 37386 && type === 5) result.focalLength = readRational(u32(valueFieldAbs))
+      else if (tag === 42036 && type === 2) result.lens = readAscii(count, valueFieldAbs)
     })
   }
 
