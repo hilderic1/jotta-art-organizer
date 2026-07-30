@@ -5,6 +5,7 @@ const LINKS = [
   { href: '/dedupe', label: 'Dedupe' },
   { href: '/backup', label: 'Copy' },
   { href: '/tags', label: 'Tags' },
+  { href: '/inspect', label: 'Inspect' },
   // Named rather than hidden behind the app title: account details and
   // Disconnect live here now, and a house icon doesn't say so.
   { href: '/setup', label: 'Setup' },
