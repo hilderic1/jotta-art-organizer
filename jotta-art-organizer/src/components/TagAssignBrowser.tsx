@@ -486,6 +486,12 @@ export function TagAssignBrowser({
                     📥 Acquired: {new Date(filePropsPreview.dateAcquiredAtEpochSeconds * 1000).toISOString().slice(0, 10)}
                   </p>
                 )}
+                {filePropsPreview.camera && <p>📷 {filePropsPreview.camera}</p>}
+                {filePropsPreview.latitude != null && filePropsPreview.longitude != null && (
+                  <p>
+                    📍 {filePropsPreview.latitude.toFixed(4)}, {filePropsPreview.longitude.toFixed(4)}
+                  </p>
+                )}
                 {filePropsPreview.sourceType && (
                   <p className="font-medium text-indigo-700 dark:text-indigo-400">
                     🔏 Content credentials: {filePropsPreview.sourceType}

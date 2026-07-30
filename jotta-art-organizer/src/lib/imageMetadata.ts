@@ -5,7 +5,7 @@
 // and metadata chunks/segments always precede the actual pixel data), so
 // this stays cheap even run across a very large library.
 import { viewUrl, jottaTime, type MountpointRef } from '@/lib/api'
-import { PHOTO_TAKEN_TIME_CATEGORY_ID, toIsoDate } from '@/lib/googlePhotosMetadata'
+import { PHOTO_TAKEN_TIME_CATEGORY_ID, GEO_DATA_CATEGORY_ID, toIsoDate } from '@/lib/googlePhotosMetadata'
 
 export type ArtworkFileMetadata = {
   width?: number
@@ -35,6 +35,11 @@ export type ArtworkFileMetadata = {
   /** IPTC Credit — names the tool in plain language where Source type only
    *  gives a category ("Edited with Google AI"). */
   credit?: string
+  /** From the file's own GPS block, not a Google Photos sidecar. */
+  latitude?: number
+  longitude?: number
+  /** Make and model together: "Apple iPhone 6 Plus". */
+  camera?: string
   authors?: string[]
   programName?: string
   copyright?: string
@@ -65,6 +70,7 @@ export const EDITOR_CREATED_CATEGORY_ID = 'editorCreated'
 // that reliably separates your own work from a generated image.
 export const SOURCE_TYPE_CATEGORY_ID = 'sourceType'
 export const CREDIT_CATEGORY_ID = 'credit'
+export const CAMERA_CATEGORY_ID = 'camera'
 // IPTC digital source types, mapped to plain language. Anything unrecognised
 // is kept verbatim rather than forced into one of these.
 const DIGITAL_SOURCE_TYPES: Record<string, string> = {
@@ -116,6 +122,8 @@ export function hasImportableFileTags(m: ArtworkFileMetadata): boolean {
     m.editorDrawTimeMs != null ||
     m.sourceType != null ||
     m.credit != null ||
+    m.camera != null ||
+    (m.latitude != null && m.longitude != null) ||
     (m.authors != null && m.authors.length > 0) ||
     m.programName != null ||
     m.copyright != null
@@ -154,6 +162,15 @@ export function deriveTagsFromFileMetadata(
   }
   if (m.credit) {
     next[CREDIT_CATEGORY_ID] = [m.credit]
+  }
+  if (m.camera) {
+    next[CAMERA_CATEGORY_ID] = [...new Set([...(next[CAMERA_CATEGORY_ID] ?? []), m.camera])]
+  }
+  // Written in the same "lat, lon" shape the Google Photos path uses, so both
+  // sources land in one category and the map filter plots them together.
+  if (m.latitude != null && m.longitude != null) {
+    const geo = `${m.latitude.toFixed(4)}, ${m.longitude.toFixed(4)}`
+    next[GEO_DATA_CATEGORY_ID] = [...new Set([...(next[GEO_DATA_CATEGORY_ID] ?? []), geo])]
   }
   if (m.editorPhotosAdded != null) {
     next[PHOTO_USED_CATEGORY_ID] = [m.editorPhotosAdded > 0 ? PHOTO_USED_VALUES[1] : PHOTO_USED_VALUES[0]]
@@ -440,6 +457,9 @@ function parseExifTiff(view: DataView, tiffStart: number, result: ArtworkFileMet
   let dateTimeOriginal: string | undefined
   let dateTimeDigitized: string | undefined
   let exifIfdRelOffset: number | undefined
+  let gpsIfdRelOffset: number | undefined
+  let make: string | undefined
+  let model: string | undefined
 
   function readRational(relOffset: number): number | undefined {
     const abs = tiffStart + relOffset
@@ -492,8 +512,50 @@ function parseExifTiff(view: DataView, tiffStart: number, result: ArtworkFileMet
     else if (tag === 315 && type === 2) artist = readAscii(count, valueFieldAbs)
     else if (tag === 305 && type === 2) software = readAscii(count, valueFieldAbs)
     else if (tag === 33432 && type === 2) copyright = readAscii(count, valueFieldAbs)
+    else if (tag === 271 && type === 2) make = readAscii(count, valueFieldAbs)
+    else if (tag === 272 && type === 2) model = readAscii(count, valueFieldAbs)
     else if (tag === 34665 && type === 4) exifIfdRelOffset = u32(valueFieldAbs)
+    // GPS lives in its own IFD, reached through this pointer. Photos taken on
+    // a phone carry coordinates here, whether or not a Google Photos sidecar
+    // exists — which for most of a camera roll it doesn't.
+    else if (tag === 34853 && type === 4) gpsIfdRelOffset = u32(valueFieldAbs)
   })
+
+  if (gpsIfdRelOffset != null) {
+    let latRef: string | undefined
+    let lonRef: string | undefined
+    let lat: number | undefined
+    let lon: number | undefined
+
+    // Stored as three rationals — degrees, minutes, seconds — always via an
+    // offset, since 24 bytes can't fit in the entry's 4-byte value field.
+    function readDms(count: number, valueFieldAbs: number): number | undefined {
+      if (count < 3) return undefined
+      const abs = u32(valueFieldAbs)
+      const degrees = readRational(abs)
+      const minutes = readRational(abs + 8)
+      const seconds = readRational(abs + 16)
+      if (degrees == null || minutes == null || seconds == null) return undefined
+      return degrees + minutes / 60 + seconds / 3600
+    }
+
+    readIfd(gpsIfdRelOffset, (tag, type, count, valueFieldAbs) => {
+      if (tag === 1 && type === 2) latRef = readAscii(count, valueFieldAbs)
+      else if (tag === 2 && type === 5) lat = readDms(count, valueFieldAbs)
+      else if (tag === 3 && type === 2) lonRef = readAscii(count, valueFieldAbs)
+      else if (tag === 4 && type === 5) lon = readDms(count, valueFieldAbs)
+    })
+
+    if (lat != null && lon != null && Number.isFinite(lat) && Number.isFinite(lon)) {
+      result.latitude = latRef?.toUpperCase() === 'S' ? -lat : lat
+      result.longitude = lonRef?.toUpperCase() === 'W' ? -lon : lon
+    }
+  }
+
+  // "Apple iPhone 6 Plus" reads better than either half alone, and Model on
+  // its own is ambiguous across manufacturers.
+  const camera = [make, model].filter(Boolean).join(' ').trim()
+  if (camera) result.camera = camera
 
   if (exifIfdRelOffset != null) {
     readIfd(exifIfdRelOffset, (tag, type, count, valueFieldAbs) => {
