@@ -575,8 +575,11 @@ export default function DedupePage() {
       <div>
         <h1 className="text-2xl font-semibold">Remove duplicates</h1>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Scans a folder already in Jottacloud for files with identical content and removes the extras (moved to
-          Jottacloud&rsquo;s trash, not permanently deleted).
+          Finds pictures you have more than one copy of and clears out the extras. Copies are matched on their
+          actual content, so a renamed file is still caught.
+        </p>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          Nothing is destroyed: everything removed goes to Jottacloud&rsquo;s trash, where you can get it back.
         </p>
       </div>
 

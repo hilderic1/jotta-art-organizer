@@ -262,9 +262,13 @@ export default function BackupPage() {
       <div>
         <h1 className="text-2xl font-semibold">Copy or move between folders</h1>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Recursively copies a whole folder tree to another location using Jottacloud&rsquo;s own server-side copy — no
-          file bytes pass through this app. Safe to re-run: files already matching at the destination are skipped, and
-          conflicting files (same name, different content) are reported, never overwritten.
+          Copies a folder and everything in it to somewhere else in your Jottacloud — or moves it, if you&rsquo;d
+          rather it didn&rsquo;t stay behind. Jottacloud does the copying itself, so nothing is downloaded and
+          re-uploaded, and it stays quick even for large folders.
+        </p>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          Safe to run twice: anything already at the destination is left alone. If a file with the same name but
+          different content is in the way, it&rsquo;s listed for you to look at rather than overwritten.
         </p>
       </div>
 

@@ -177,8 +177,8 @@ export default function TagsPage() {
     <div>
       <h1 className="text-2xl font-semibold">Tags</h1>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Classify artwork by characteristics (style, subject, mood, …) instead of folder location, then browse by any
-        combination of them.
+        Describe your work by what it <em>is</em> — style, mood, colour, what&rsquo;s in it — rather than by which
+        folder it happened to land in. Then find pieces by any combination of those.
       </p>
     </div>
   )

@@ -132,7 +132,14 @@ export default function ImportPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
-      <h1 className="text-2xl font-semibold">Import artwork</h1>
+      <div>
+        <h1 className="text-2xl font-semibold">Import artwork</h1>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          Uploads finished work from this device into your Jottacloud archive. Choose where it should go, pick your
+          files, and they&rsquo;re checked against what&rsquo;s already there so you don&rsquo;t end up with second
+          copies.
+        </p>
+      </div>
 
       <section>
         <h2 className="mb-2 text-sm font-medium text-zinc-600 dark:text-zinc-400">

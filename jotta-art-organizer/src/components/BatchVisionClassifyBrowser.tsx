@@ -153,14 +153,18 @@ export function BatchVisionClassifyBrowser({
   return (
     <div className="flex flex-col gap-3">
       <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-        Each image is sent to Claude&rsquo;s vision API (Haiku) for classification — this costs real money on your
-        Anthropic account, unlike every other tool in this app. Test on a small folder first. Files that already
-        have Style/Subject/Palette/Framed/Mood tags are skipped on re-runs, so resuming or re-running a folder
-        won&rsquo;t re-spend on unchanged content.
+        <span className="font-medium">This one costs money.</span> Every picture is sent to Claude to be looked at,
+        billed to your Anthropic account — unlike everything else here. Try a small folder first. Pictures already
+        described are skipped when you run a folder again, so nothing is paid for twice.
       </div>
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Scans this folder and every subfolder for images, and classifies each one&rsquo;s Style, Subject, Palette,
-        Framed, and Mood using AI. Safe to pause and resume at any point.
+        Looks at each picture and suggests how to describe it: its style, what&rsquo;s in it, the colours, the mood,
+        whether it has a border baked in, and the sense of movement. In abstract work it will also name shapes it
+        can make out, and propose a style you don&rsquo;t have yet.
+      </p>
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        These are one machine&rsquo;s impressions of a picture — worth reviewing rather than trusting. Pause any
+        time; it resumes where it stopped.
       </p>
 
       {location === null ? (
