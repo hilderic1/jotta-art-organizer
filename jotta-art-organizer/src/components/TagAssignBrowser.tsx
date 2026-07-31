@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { listFolder, jottaTime, type MountpointRef, type JottaFolderListing, type JottaEntry } from '@/lib/api'
 import { LocationPicker } from './LocationPicker'
 import { Thumbnail } from './Thumbnail'
@@ -297,24 +297,28 @@ export function TagAssignBrowser({
   // off the files themselves would mean a range request each, whereas these
   // are already in memory. Untagged files fall through to Jottacloud's own
   // timestamp, which every file has.
-  const tagsByMd5 = new Map(artworks.map((a) => [a.md5, a.tags]))
-  function dateOf(file: JottaEntry): number {
-    const tags = file.md5 ? tagsByMd5.get(file.md5) : undefined
-    const stored =
-      tags?.[PHOTO_TAKEN_TIME_CATEGORY_ID]?.[0] ??
-      // For work made in an editor this is the creation date, so it ranks
-      // directly behind a genuine capture time.
-      tags?.[EDITOR_CREATED_CATEGORY_ID]?.[0] ??
-      // Date Acquired sits between the two on purpose: when a piece was
-      // digitised is far closer to when it was made than when it happened to
-      // be uploaded, so skipping it would push files to the wrong end.
-      tags?.[DATE_ACQUIRED_CATEGORY_ID]?.[0] ??
-      tags?.[JOTTA_CREATED_CATEGORY_ID]?.[0]
-    if (stored) {
+  const tagsByMd5 = useMemo(() => new Map(artworks.map((a) => [a.md5, a.tags])), [artworks])
+  // Resolved once per file and cached, not recomputed inside the sort
+  // comparator — that ran Date.parse on every comparison, so an n log n sort
+  // became n log n date parses on every keystroke.
+  const dateByMd5 = useMemo(() => {
+    const dates = new Map<string, number>()
+    for (const [md5, tags] of tagsByMd5) {
+      const stored =
+        tags?.[PHOTO_TAKEN_TIME_CATEGORY_ID]?.[0] ??
+        tags?.[EDITOR_CREATED_CATEGORY_ID]?.[0] ??
+        tags?.[DATE_ACQUIRED_CATEGORY_ID]?.[0] ??
+        tags?.[JOTTA_CREATED_CATEGORY_ID]?.[0]
+      if (!stored) continue
       const parsed = Date.parse(stored)
-      if (!Number.isNaN(parsed)) return parsed
+      if (!Number.isNaN(parsed)) dates.set(md5, parsed)
     }
-    return jottaTime(file.created)
+    return dates
+  }, [tagsByMd5])
+
+  function dateOf(file: JottaEntry): number {
+    const known = file.md5 ? dateByMd5.get(file.md5) : undefined
+    return known ?? jottaTime(file.created)
   }
 
   // Whichever category the user made for titles — matched by name rather than
@@ -326,6 +330,35 @@ export function TagAssignBrowser({
     if (!titleCategoryId || !file.md5) return file.name
     return tagsByMd5.get(file.md5)?.[titleCategoryId]?.[0]?.trim() || file.name
   }
+
+  // Sorted once per listing rather than on every render, and with the two
+  // per-file scans that were inside the grid — a linear search of every
+  // artwork, and a sidecar match against every sibling file — hoisted into
+  // maps built once. Both were quadratic against folder size on each render.
+  const visibleFiles = useMemo(() => {
+    const files = listing?.files ?? []
+    return sortFiles(
+      files.filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json')),
+      sort,
+      dateOf
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dateOf is derived from dateByMd5
+  }, [listing, sort, dateByMd5])
+
+  const tagCountByMd5 = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const [md5, tags] of tagsByMd5) counts.set(md5, Object.values(tags).flat().length)
+    return counts
+  }, [tagsByMd5])
+
+  const namesWithSidecar = useMemo(() => {
+    const files = listing?.files ?? []
+    const found = new Set<string>()
+    for (const f of files) {
+      if (f.md5 && !f.name.toLowerCase().endsWith('.json') && findMetadataSidecar(files, f.name)) found.add(f.name)
+    }
+    return found
+  }, [listing])
 
   const crumbs = segments(path)
 
@@ -408,14 +441,9 @@ export function TagAssignBrowser({
           </span>
         </div>
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {sortFiles(
-            listing.files.filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json')),
-            sort,
-            dateOf
-          ).map((f) => {
-              const tagged = artworks.find((a) => a.md5 === f.md5)
-              const tagCount = tagged ? Object.values(tagged.tags).flat().length : 0
-              const hasMetadata = Boolean(findMetadataSidecar(listing.files, f.name))
+          {visibleFiles.map((f) => {
+              const tagCount = (f.md5 && tagCountByMd5.get(f.md5)) || 0
+              const hasMetadata = namesWithSidecar.has(f.name)
               return (
                 <li key={f.path}>
                   <button
@@ -423,7 +451,7 @@ export function TagAssignBrowser({
                     onClick={() => openEditor(f)}
                   >
                     <div className="relative">
-                      <Thumbnail loc={location} path={f.path} alt={f.name} px={256} className="h-20 w-20 rounded object-cover" />
+                      <Thumbnail loc={location} path={f.path} alt={f.name} px={128} className="h-20 w-20 rounded object-cover" />
                       {hasMetadata && (
                         <span
                           title="Has Google Photos metadata"
