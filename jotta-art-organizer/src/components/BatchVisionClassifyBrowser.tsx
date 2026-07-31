@@ -248,30 +248,36 @@ export function BatchVisionClassifyBrowser({
 
             {!checkingManifest && !manifestError && (
               <>
-                {manifest === null && !running && (
-                  <div className="flex flex-col gap-2">
-                    <label className="flex w-fit items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                      <input
-                        type="checkbox"
-                        checked={reclassifyExisting}
-                        onChange={(e) => setReclassifyExisting(e.target.checked)}
-                        className="mt-0.5"
-                      />
-                      <span>
-                        Re-classify files that already have tags
-                        <span className="block text-zinc-400">
-                          Off by default so a re-run costs nothing on unchanged files. Turn it on after a change to
-                          the style list — existing judgments are stale then, and would otherwise be skipped forever.
-                        </span>
+                {/* Above the state branches, not inside the "never run
+                    before" one: re-classifying is wanted precisely on a
+                    folder that has already been done, which is when that
+                    branch is hidden. */}
+                {!running && (
+                  <label className="flex w-fit items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                    <input
+                      type="checkbox"
+                      checked={reclassifyExisting}
+                      onChange={(e) => setReclassifyExisting(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Re-classify pictures already described
+                      <span className="block text-zinc-400">
+                        Off by default, so running a folder again costs nothing on pictures that haven&rsquo;t
+                        changed. Turn it on after the style list changes — earlier descriptions are out of date
+                        then, and would otherwise be skipped forever. Applies when you start a fresh run.
                       </span>
-                    </label>
-                    <button
-                      onClick={startFresh}
-                      className="w-fit rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-                    >
-                      Classify this folder + subfolders
-                    </button>
-                  </div>
+                    </span>
+                  </label>
+                )}
+
+                {manifest === null && !running && (
+                  <button
+                    onClick={startFresh}
+                    className="w-fit rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+                  >
+                    Classify this folder + subfolders
+                  </button>
                 )}
 
                 {manifest && manifest.status === 'in_progress' && !running && (

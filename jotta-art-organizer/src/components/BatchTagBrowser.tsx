@@ -279,32 +279,38 @@ export function BatchTagBrowser({
 
             {!checkingManifest && !manifestError && (
               <>
-                {manifest === null && !running && (
-                  <div className="flex flex-col gap-2">
-                    <label className="flex w-fit items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                      <input
-                        type="checkbox"
-                        checked={readFileProperties}
-                        onChange={(e) => setReadFileProperties(e.target.checked)}
-                        className="mt-0.5"
-                      />
-                      <span>
-                        Also open each picture to read what it knows
-                        <span className="block text-zinc-400">
-                          Photos backed up from Google Photos come with a summary alongside them, and that summary
-                          is all this reads by default — quick, but it never mentions the camera, where the picture
-                          was taken, or whether AI was involved. Turn this on to open the pictures themselves as
-                          well. Much slower on a large folder, and worth doing once.
-                        </span>
+                {/* Outside the "never run before" branch on purpose: the run
+                    most likely to want this is a second one over a folder
+                    already tagged, which is exactly when that branch is
+                    hidden. It governs every fresh start, so it belongs above
+                    all of them. */}
+                {!running && (
+                  <label className="flex w-fit items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                    <input
+                      type="checkbox"
+                      checked={readFileProperties}
+                      onChange={(e) => setReadFileProperties(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Also open each picture to read what it knows
+                      <span className="block text-zinc-400">
+                        Photos backed up from Google Photos come with a summary alongside them, and that summary is
+                        all this reads by default — quick, but it never mentions the camera, where the picture was
+                        taken, or whether AI was involved. Turn this on to open the pictures themselves as well.
+                        Much slower on a large folder, and worth doing once. Applies when you start a fresh run.
                       </span>
-                    </label>
+                    </span>
+                  </label>
+                )}
+
+                {manifest === null && !running && (
                   <button
                     onClick={startFresh}
                     className="w-fit rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
                   >
                     Tag this folder + subfolders
                   </button>
-                  </div>
                 )}
 
                 {manifest && manifest.status === 'in_progress' && !running && (
