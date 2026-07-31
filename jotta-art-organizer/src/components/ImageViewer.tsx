@@ -61,21 +61,26 @@ export function ImageViewer({
       {/* Side by side on a wide screen, stacked on a narrow one — the panel
           below the image beats squeezing the picture on a phone. */}
       <div
-        className="relative flex max-h-[90vh] w-full max-w-[95vw] flex-col gap-3 sm:flex-row sm:items-start sm:justify-center"
+        className="flex max-h-[90vh] w-full max-w-[95vw] flex-col gap-2"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Fixed to the viewport, not the image container: positioned above
-            the container it sat off the top of a phone screen, leaving no way
-            out of a full-size picture at all. */}
-        <button
-          onClick={onClose}
-          className="fixed right-3 z-10 rounded-full bg-black/60 px-3 py-2 text-lg leading-none text-white hover:bg-black/80 [top:max(0.75rem,env(safe-area-inset-top))]"
-          title="Close (Esc)"
-          aria-label="Close"
-        >
-          ✕
-        </button>
+        {/* In normal flow at the top of the column, not positioned. Absolute
+            and fixed placements both ended up somewhere a phone wouldn't
+            show — off the top of the screen, or under the status bar — and a
+            full-screen picture with no way out is the worst failure here. */}
+        <div className="flex shrink-0 items-center justify-between gap-2">
+          <span className="truncate text-sm text-white/80">{title}</span>
+          <button
+            onClick={onClose}
+            className="shrink-0 rounded-full bg-white/15 px-4 py-2 text-lg leading-none text-white hover:bg-white/30"
+            title="Close (Esc)"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
 
+        <div className="flex min-h-0 flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-center">
         <div className="relative">
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center bg-zinc-900">
@@ -121,6 +126,7 @@ export function ImageViewer({
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   )
