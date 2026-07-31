@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { listFolder, viewUrl, jottaTime, type MountpointRef, type JottaFolderListing, type JottaEntry } from '@/lib/api'
+import { listFolder, jottaTime, type MountpointRef, type JottaFolderListing, type JottaEntry } from '@/lib/api'
 import { LocationPicker } from './LocationPicker'
 import { Thumbnail } from './Thumbnail'
+import { ImageViewer } from './ImageViewer'
 import { FileProperties } from './FileProperties'
 import { KNOWN_CATEGORY_NAMES, type Category, type ArtworkTags } from '@/lib/metadata'
 import {
@@ -126,6 +127,7 @@ export function TagAssignBrowser({
   // under the cursor.
   const [initiallyTagged, setInitiallyTagged] = useState<Set<string>>(new Set())
   const [sort, setSort] = useState<Sort>('date-desc')
+  const [viewingFull, setViewingFull] = useState(false)
 
   useEffect(() => {
     if (!location) return
@@ -484,13 +486,11 @@ export function TagAssignBrowser({
                 used to push every tag another screen down. */}
             {location && (
               <div className="mb-3 flex gap-3">
-                <a
-                  href={viewUrl(location, editing.path)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="shrink-0"
-                  title="Open full size"
-                >
+                {/* Opens the in-app viewer rather than linking to the raw
+                    file: installed as a home-screen app there is no browser
+                    chrome, so a new tab showing an image has nothing to close
+                    it with. */}
+                <button onClick={() => setViewingFull(true)} className="shrink-0" title="Open full size">
                   <Thumbnail
                     loc={location}
                     path={editing.path}
@@ -498,7 +498,7 @@ export function TagAssignBrowser({
                     px={512}
                     className="max-h-40 w-32 rounded object-contain"
                   />
-                </a>
+                </button>
                 <div className="min-w-0 flex-1">
                   {filePropsPreview && (
                     <>
@@ -792,6 +792,18 @@ export function TagAssignBrowser({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Above the editor, closing back to it rather than out of the app. */}
+      {viewingFull && editing && location && (
+        <ImageViewer
+          loc={location}
+          path={editing.path}
+          title={labelFor(editing)}
+          tags={pendingTags}
+          categories={categories}
+          onClose={() => setViewingFull(false)}
+        />
       )}
     </div>
   )
