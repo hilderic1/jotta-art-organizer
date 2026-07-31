@@ -1,6 +1,7 @@
 import { listFolder, type MountpointRef } from '@/lib/api'
 import { readJsonFile, writeJsonFile } from '@/lib/jsonStore'
 import { KNOWN_CLASSIFICATION_VALUES } from '@/lib/visionClassify'
+import { readCachedShards, writeCachedShards } from '@/lib/shardCache'
 
 export type Category = {
   id: string
@@ -238,7 +239,51 @@ async function saveShard(loc: MountpointRef, shardKey: string, records: ArtworkT
 // rather than on every edit, so it's fine for it to cost more than a single
 // request the old single-file design didn't need.
 async function loadAllArtworkShards(loc: MountpointRef, opts?: { concurrency?: number }): Promise<ArtworkTags[]> {
-  return loadShardsByKeys(loc, await loadShardIndex(loc), opts)
+  return loadShardsCached(loc, await loadShardIndex(loc))
+}
+
+// One folder listing decides what actually changed. Shards whose timestamp
+// matches the cached copy are read from the device; only the rest are
+// fetched. A revisit with nothing changed costs that single listing, instead
+// of the few hundred round trips this used to take from a phone.
+async function loadShardsCached(loc: MountpointRef, keys: string[]): Promise<ArtworkTags[]> {
+  if (keys.length === 0) return []
+
+  const listing = await listFolder(loc, ARTWORK_SHARDS_FOLDER).catch(() => null)
+  if (!listing) return loadShardsByKeys(loc, keys)
+
+  const modifiedByKey = new Map<string, string>()
+  for (const file of listing.files) {
+    const key = file.name.replace(/\.json$/i, '')
+    const stamp = file.modified ?? file.created
+    if (stamp) modifiedByKey.set(key, stamp)
+  }
+
+  const scope = `${loc.device}/${loc.mountpoint}`
+  const cached = await readCachedShards(scope, keys)
+
+  const fresh: ArtworkTags[] = []
+  const stale: string[] = []
+  for (const key of keys) {
+    const hit = cached.get(key)
+    const current = modifiedByKey.get(key)
+    // No timestamp means the listing didn't mention it — refetch rather than
+    // trust a cached copy of something we can't date.
+    if (hit && current && hit.modified === current) fresh.push(...hit.records)
+    else stale.push(key)
+  }
+
+  if (stale.length === 0) return fresh
+
+  const fetched = await loadShardsWithKeys(loc, stale)
+  await writeCachedShards(
+    scope,
+    stale
+      .map((key) => ({ shardKey: key, records: fetched.get(key) ?? [], modified: modifiedByKey.get(key) ?? '' }))
+      .filter((entry) => entry.modified !== '')
+  )
+
+  return [...fresh, ...[...fetched.values()].flat()]
 }
 
 async function loadShardsByKeys(
@@ -246,7 +291,17 @@ async function loadShardsByKeys(
   keys: string[],
   opts?: { concurrency?: number }
 ): Promise<ArtworkTags[]> {
-  if (keys.length === 0) return []
+  return [...(await loadShardsWithKeys(loc, keys, opts)).values()].flat()
+}
+
+// Returns each shard's records against its key, so the caller can cache them
+// individually rather than as one indivisible blob.
+async function loadShardsWithKeys(
+  loc: MountpointRef,
+  keys: string[],
+  opts?: { concurrency?: number }
+): Promise<Map<string, ArtworkTags[]>> {
+  if (keys.length === 0) return new Map()
   const concurrency = opts?.concurrency ?? 16
   const results: ArtworkTags[][] = new Array(keys.length)
   let idx = 0
@@ -278,7 +333,7 @@ async function loadShardsByKeys(
     pump()
   })
   if (error) throw error
-  return results.flat()
+  return new Map(keys.map((key, i) => [key, results[i] ?? []]))
 }
 
 export async function loadMetadata(loc: MountpointRef): Promise<MetadataStore> {
@@ -309,8 +364,8 @@ export async function loadMetadata(loc: MountpointRef): Promise<MetadataStore> {
 // files' md5s say exactly which shards could hold their records, usually a
 // handful. A big tree would cost more to list than it saves, so the walk
 // gives up early and the caller falls back to reading every shard.
-const FOLDER_SCAN_BUDGET = 60
-const FILE_SCAN_BUDGET = 25000
+const FOLDER_SCAN_BUDGET = 12
+const FILE_SCAN_BUDGET = 8000
 
 async function collectFolderMd5s(folder: MountpointRef & { path?: string }): Promise<Set<string> | null> {
   const md5s = new Set<string>()
@@ -318,7 +373,7 @@ async function collectFolderMd5s(folder: MountpointRef & { path?: string }): Pro
   let visited = 0
 
   while (queue.length > 0) {
-    const batch = queue.splice(0, 8)
+    const batch = queue.splice(0, 4)
     const listings = await Promise.all(batch.map((p) => listFolder(folder, p)))
     for (const listing of listings) {
       visited++
@@ -381,7 +436,7 @@ export async function loadMetadataForFolder(
     keys = index.filter((k) => wanted.has(k))
   }
 
-  const artworks = await loadShardsByKeys(metadataLoc, keys)
+  const artworks = await loadShardsCached(metadataLoc, keys)
   return {
     store: {
       categories: cleanCategories(categoriesFile.categories ?? []),
