@@ -159,46 +159,14 @@ export function deriveTagsFromFileMetadata(
   existing: Record<string, string[]> = {}
 ): Record<string, string[]> {
   const next: Record<string, string[]> = { ...existing }
-  if (m.width != null && m.height != null) {
-    const dims = `${m.width}x${m.height}`
-    next[DIMENSIONS_CATEGORY_ID] = [...new Set([...(next[DIMENSIONS_CATEGORY_ID] ?? []), dims])]
-  }
-  if (m.xResolution != null) {
-    next[X_RESOLUTION_CATEGORY_ID] = [...new Set([...(next[X_RESOLUTION_CATEGORY_ID] ?? []), String(m.xResolution)])]
-  }
-  if (m.yResolution != null) {
-    next[Y_RESOLUTION_CATEGORY_ID] = [...new Set([...(next[Y_RESOLUTION_CATEGORY_ID] ?? []), String(m.yResolution)])]
-  }
+
+  // Size, resolution, camera, lens, author and the exposure settings are
+  // read and shown, never tagged: they are per-file facts, so as tags they
+  // fill Browse with values matching one picture each and group nothing.
+
   if (m.dateTakenAtEpochSeconds != null) {
     const iso = toIsoDate(m.dateTakenAtEpochSeconds)
     next[PHOTO_TAKEN_TIME_CATEGORY_ID] = [...new Set([...(next[PHOTO_TAKEN_TIME_CATEGORY_ID] ?? []), iso])]
-  }
-  if (m.dateAcquiredAtEpochSeconds != null) {
-    const iso = toIsoDate(m.dateAcquiredAtEpochSeconds)
-    next[DATE_ACQUIRED_CATEGORY_ID] = [...new Set([...(next[DATE_ACQUIRED_CATEGORY_ID] ?? []), iso])]
-  }
-  // Both overwrite rather than accumulate: each is a single fact about the
-  // file, not a list it can gather more of.
-  if (m.sourceType) {
-    next[SOURCE_TYPE_CATEGORY_ID] = [m.sourceType]
-  }
-  if (m.credit) {
-    next[CREDIT_CATEGORY_ID] = [m.credit]
-  }
-  if (m.camera) {
-    next[CAMERA_CATEGORY_ID] = [...new Set([...(next[CAMERA_CATEGORY_ID] ?? []), m.camera])]
-  }
-  // Written in the same "lat, lon" shape the Google Photos path uses, so both
-  // sources land in one category and the map filter plots them together.
-  if (m.latitude != null && m.longitude != null) {
-    const geo = `${m.latitude.toFixed(4)}, ${m.longitude.toFixed(4)}`
-    next[GEO_DATA_CATEGORY_ID] = [...new Set([...(next[GEO_DATA_CATEGORY_ID] ?? []), geo])]
-  }
-  if (m.editorPhotosAdded != null) {
-    next[PHOTO_USED_CATEGORY_ID] = [m.editorPhotosAdded > 0 ? PHOTO_USED_VALUES[1] : PHOTO_USED_VALUES[0]]
-  }
-  if (m.editorDrawTimeMs != null && m.editorDrawTimeMs > 0) {
-    next[DRAW_TIME_CATEGORY_ID] = [drawTimeBand(m.editorDrawTimeMs)]
   }
   if (m.editorCreatedAtEpochSeconds != null) {
     const iso = toIsoDate(m.editorCreatedAtEpochSeconds)
@@ -208,12 +176,38 @@ export function deriveTagsFromFileMetadata(
     const iso = toIsoDate(m.fileChangedAtEpochSeconds)
     next[FILE_CHANGED_CATEGORY_ID] = [...new Set([...(next[FILE_CHANGED_CATEGORY_ID] ?? []), iso])]
   }
-  if (m.jottaCreatedAtEpochSeconds != null) {
-    const iso = toIsoDate(m.jottaCreatedAtEpochSeconds)
-    next[JOTTA_CREATED_CATEGORY_ID] = [...new Set([...(next[JOTTA_CREATED_CATEGORY_ID] ?? []), iso])]
+
+  // When it was digitised, and when it reached Jottacloud, are tagged only
+  // when nothing better exists — they say little about when a piece was
+  // made, and a bulk upload gives hundreds of files the same value. Kept as
+  // a last resort so that every file still carries one date to sort by.
+  const hasDate = (id: string) => (next[id]?.length ?? 0) > 0
+  let dated =
+    hasDate(PHOTO_TAKEN_TIME_CATEGORY_ID) || hasDate(EDITOR_CREATED_CATEGORY_ID) || hasDate(FILE_CHANGED_CATEGORY_ID)
+
+  if (!dated && m.dateAcquiredAtEpochSeconds != null) {
+    next[DATE_ACQUIRED_CATEGORY_ID] = [toIsoDate(m.dateAcquiredAtEpochSeconds)]
+    dated = true
   }
-  if (m.authors && m.authors.length > 0) {
-    next[AUTHORS_CATEGORY_ID] = [...new Set([...(next[AUTHORS_CATEGORY_ID] ?? []), ...m.authors])]
+  if (!dated && m.jottaCreatedAtEpochSeconds != null) {
+    next[JOTTA_CREATED_CATEGORY_ID] = [toIsoDate(m.jottaCreatedAtEpochSeconds)]
+  }
+
+  // Single facts about the file, so these overwrite rather than accumulate.
+  if (m.sourceType) next[SOURCE_TYPE_CATEGORY_ID] = [m.sourceType]
+  if (m.credit) next[CREDIT_CATEGORY_ID] = [m.credit]
+  if (m.editorPhotosAdded != null) {
+    next[PHOTO_USED_CATEGORY_ID] = [m.editorPhotosAdded > 0 ? PHOTO_USED_VALUES[1] : PHOTO_USED_VALUES[0]]
+  }
+  if (m.editorDrawTimeMs != null && m.editorDrawTimeMs > 0) {
+    next[DRAW_TIME_CATEGORY_ID] = [drawTimeBand(m.editorDrawTimeMs)]
+  }
+
+  // Written in the same "lat, lon" shape the Google Photos path uses, so both
+  // sources land in one category and the map filter plots them together.
+  if (m.latitude != null && m.longitude != null) {
+    const geo = `${m.latitude.toFixed(4)}, ${m.longitude.toFixed(4)}`
+    next[GEO_DATA_CATEGORY_ID] = [...new Set([...(next[GEO_DATA_CATEGORY_ID] ?? []), geo])]
   }
   if (m.programName) {
     next[PROGRAM_NAME_CATEGORY_ID] = [...new Set([...(next[PROGRAM_NAME_CATEGORY_ID] ?? []), m.programName])]

@@ -72,9 +72,12 @@ export function deriveTagsFromMetadata(
     const photoTakenTime = toIsoDate(m.photoTakenAtEpochSeconds)
     next[PHOTO_TAKEN_TIME_CATEGORY_ID] = [...new Set([...(next[PHOTO_TAKEN_TIME_CATEGORY_ID] ?? []), photoTakenTime])]
   }
-  if (m.creationTimeAtEpochSeconds) {
+  // When Google received the photo, which for a bulk backup is one date
+  // across thousands of files — tagged only when nothing better exists, so
+  // that a file still has a date to sort by. Always shown in the panel.
+  if (m.creationTimeAtEpochSeconds && (next[PHOTO_TAKEN_TIME_CATEGORY_ID]?.length ?? 0) === 0) {
     const creationTime = toIsoDate(m.creationTimeAtEpochSeconds)
-    next[CREATION_TIME_CATEGORY_ID] = [...new Set([...(next[CREATION_TIME_CATEGORY_ID] ?? []), creationTime])]
+    next[CREATION_TIME_CATEGORY_ID] = [creationTime]
   }
   if (m.latitude != null && m.longitude != null) {
     const geoData = `${m.latitude.toFixed(4)}, ${m.longitude.toFixed(4)}`

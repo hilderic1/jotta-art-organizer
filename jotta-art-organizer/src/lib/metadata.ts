@@ -148,12 +148,37 @@ function cleanTagValues(categoryId: string, values: unknown): string[] {
   return canonical ? strings.filter((v) => canonical.includes(v)) : strings
 }
 
+// Facts about one file rather than qualities shared between files. As tags
+// they produced a value per picture, which groups nothing and buries the
+// categories that do — so they're shown in the properties panel instead, and
+// dropped here so earlier runs don't leave them behind.
+const RETIRED_CATEGORY_IDS = new Set(['dimensions', 'xResolution', 'yResolution', 'camera', 'authors'])
+
+// Dates worth having, and dates worth having only in the absence of one.
+// When a piece was digitised, when Google received it, and when it reached
+// Jottacloud say little about when it was made — a bulk upload gives
+// hundreds of files the same value — so they're kept only as a last resort,
+// leaving every file with exactly one date to sort by.
+const PREFERRED_DATE_IDS = ['photoTakenTime', 'editorCreated', 'fileChanged']
+const FALLBACK_DATE_IDS = ['dateAcquired', 'creationTime', 'jottaCreated']
+
 function cleanArtwork(artwork: ArtworkTags): ArtworkTags {
   const tags: Record<string, string[]> = {}
   for (const [categoryId, values] of Object.entries(artwork.tags ?? {})) {
+    if (RETIRED_CATEGORY_IDS.has(categoryId)) continue
     const cleaned = cleanTagValues(categoryId, values)
     if (cleaned.length > 0) tags[categoryId] = cleaned
   }
+
+  if (PREFERRED_DATE_IDS.some((id) => (tags[id]?.length ?? 0) > 0)) {
+    for (const id of FALLBACK_DATE_IDS) delete tags[id]
+  } else {
+    // Keep only the best fallback, so a file never carries three dates that
+    // all mean "we don't know when this was made".
+    const kept = FALLBACK_DATE_IDS.find((id) => (tags[id]?.length ?? 0) > 0)
+    for (const id of FALLBACK_DATE_IDS) if (id !== kept) delete tags[id]
+  }
+
   return { ...artwork, tags }
 }
 
@@ -161,7 +186,9 @@ function cleanArtwork(artwork: ArtworkTags): ArtworkTags {
 // drops junk and fills gaps in one pass. Open categories (People, Year, the
 // style suggestions) keep whatever they hold, minus non-strings.
 function cleanCategories(categories: Category[]): Category[] {
-  return categories.map((category) => {
+  return categories
+    .filter((category) => !RETIRED_CATEGORY_IDS.has(category.id))
+    .map((category) => {
     const canonical = KNOWN_CLASSIFICATION_VALUES[category.id]
     // Switching a category to free text empties its vocabulary — the values
     // collected while it was a picker are one-off entries by then, and the
