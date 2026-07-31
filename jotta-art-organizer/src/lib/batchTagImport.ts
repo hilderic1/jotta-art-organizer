@@ -35,6 +35,9 @@ export type BatchTagManifest = {
   status: 'in_progress' | 'complete'
   startedAt: string
   updatedAt: string
+  /** Read each file's own properties as well as its sidecar. Costs a fetch
+   *  per file, so it's opt-in; stored here so pause and resume keep it. */
+  readFileProperties?: boolean
 }
 
 function batchFolderPath(batchId: string): string {
@@ -62,12 +65,17 @@ async function saveBatchManifest(loc: MountpointRef, batchId: string, manifest: 
   await writeJsonFile(loc, batchFolderPath(batchId), manifestFilename(), manifest)
 }
 
-export function newBatchManifest(loc: MountpointRef, rootPath: string): BatchTagManifest {
+export function newBatchManifest(
+  loc: MountpointRef,
+  rootPath: string,
+  readFileProperties = false
+): BatchTagManifest {
   const now = new Date().toISOString()
   return {
     device: loc.device,
     mountpoint: loc.mountpoint,
     rootPath,
+    readFileProperties,
     queue: [rootPath],
     visitedFolders: 0,
     processedFiles: 0,
@@ -97,30 +105,37 @@ type FileResult = { entry: JottaEntry; tags: Record<string, string[]> | null; er
 async function processGroup(
   loc: MountpointRef,
   group: CandidateGroup,
-  existingTags: Record<string, string[]> | undefined
+  existingTags: Record<string, string[]> | undefined,
+  readFileProperties: boolean
 ): Promise<FileResult> {
   try {
+    let derived = existingTags ?? {}
+    let sawSidecar = false
+
     for (const name of group.namesToTry) {
       const sidecar = findMetadataSidecar(group.siblings, name)
       if (!sidecar) continue
       const metadata = await loadMetadataSidecar(loc, sidecar)
       if (!metadata || !hasImportableTags(metadata)) continue
-      const derived = deriveTagsFromMetadata(metadata, existingTags ?? {})
-      const changed = JSON.stringify(derived) !== JSON.stringify(existingTags ?? {})
-      return { entry: group.liveEntry, tags: changed ? derived : null }
+      derived = deriveTagsFromMetadata(metadata, derived)
+      sawSidecar = true
+      break
     }
-    // No usable Google Photos metadata — most artwork (as opposed to actual
-    // photos) has no sidecar at all. Fall back to the file's own embedded
-    // properties (dimensions/resolution/date).
-    const fileMetadata = await readArtworkMetadata(loc, group.liveEntry.path, {
-      jottaCreated: group.liveEntry.created,
-    })
-    if (fileMetadata) {
-      const derived = deriveTagsFromFileMetadata(fileMetadata, existingTags ?? {})
-      const changed = JSON.stringify(derived) !== JSON.stringify(existingTags ?? {})
-      return { entry: group.liveEntry, tags: changed ? derived : null }
+
+    // Without a sidecar the file is the only source, so it's always read.
+    // With one, reading it as well costs a fetch per file — worth it when the
+    // file carries what a sidecar never does (camera, GPS, content
+    // credentials, an editor's own record), which is why it's a choice rather
+    // than a default.
+    if (!sawSidecar || readFileProperties) {
+      const fileMetadata = await readArtworkMetadata(loc, group.liveEntry.path, {
+        jottaCreated: group.liveEntry.created,
+      })
+      if (fileMetadata) derived = deriveTagsFromFileMetadata(fileMetadata, derived)
     }
-    return { entry: group.liveEntry, tags: null }
+
+    const changed = JSON.stringify(derived) !== JSON.stringify(existingTags ?? {})
+    return { entry: group.liveEntry, tags: changed ? derived : null }
   } catch (err) {
     return { entry: group.liveEntry, tags: null, error: err instanceof Error ? err.message : 'Failed to read metadata.' }
   }
@@ -218,7 +233,7 @@ export async function runBatchChunk(
           cInFlight++
           const existing = store.artworks.find((a) => a.md5 === group.liveEntry.md5)
           opts?.onFile?.(group.liveEntry.path)
-          processGroup(loc, group, existing?.tags)
+          processGroup(loc, group, existing?.tags, manifest.readFileProperties === true)
             .then((result) => results.push(result))
             .finally(() => {
               cInFlight--

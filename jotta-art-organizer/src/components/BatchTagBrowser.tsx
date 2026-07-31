@@ -41,6 +41,7 @@ export function BatchTagBrowser({
   const [running, setRunning] = useState(false)
   const [currentFile, setCurrentFile] = useState<string | null>(null)
   const [runError, setRunError] = useState<string | null>(null)
+  const [readFileProperties, setReadFileProperties] = useState(false)
   const stopRef = useRef(false)
 
   useEffect(() => {
@@ -135,7 +136,7 @@ export function BatchTagBrowser({
   function startFresh() {
     if (!location) return
     const batchId = batchIdFor(location, path)
-    const fresh = newBatchManifest(location, path)
+    const fresh = newBatchManifest(location, path, readFileProperties)
     setManifest(fresh)
     runLoop(fresh, batchId)
   }
@@ -279,12 +280,31 @@ export function BatchTagBrowser({
             {!checkingManifest && !manifestError && (
               <>
                 {manifest === null && !running && (
+                  <div className="flex flex-col gap-2">
+                    <label className="flex w-fit items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                      <input
+                        type="checkbox"
+                        checked={readFileProperties}
+                        onChange={(e) => setReadFileProperties(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        Also open each picture to read what it knows
+                        <span className="block text-zinc-400">
+                          Photos backed up from Google Photos come with a summary alongside them, and that summary
+                          is all this reads by default — quick, but it never mentions the camera, where the picture
+                          was taken, or whether AI was involved. Turn this on to open the pictures themselves as
+                          well. Much slower on a large folder, and worth doing once.
+                        </span>
+                      </span>
+                    </label>
                   <button
                     onClick={startFresh}
                     className="w-fit rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
                   >
                     Tag this folder + subfolders
                   </button>
+                  </div>
                 )}
 
                 {manifest && manifest.status === 'in_progress' && !running && (
