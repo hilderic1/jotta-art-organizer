@@ -322,6 +322,8 @@ export function TagAssignBrowser({
   // off the files themselves would mean a range request each, whereas these
   // are already in memory. Untagged files fall through to Jottacloud's own
   // timestamp, which every file has.
+  const artworkByMd5 = useMemo(() => new Map(artworks.map((a) => [a.md5, a])), [artworks])
+
   const tagsByMd5 = useMemo(() => new Map(artworks.map((a) => [a.md5, a.tags])), [artworks])
   // Resolved once per file and cached, not recomputed inside the sort
   // comparator — that ran Date.parse on every comparison, so an n log n sort
@@ -384,6 +386,17 @@ export function TagAssignBrowser({
     }
     return found
   }, [listing])
+
+  // Stored as the original's content hash so renaming it doesn't break the
+  // link, resolved to its title — or failing that its filename — for display.
+  // A hash is durable and unreadable; a name is readable and fragile.
+  function labelForMd5(md5: string): string {
+    const known = artworkByMd5.get(md5)
+    const title = titleCategoryId ? known?.tags?.[titleCategoryId]?.[0]?.trim() : undefined
+    if (title) return title
+    const inFolder = listing?.files.find((f) => f.md5 === md5)
+    return inFolder?.name ?? known?.path.split('/').pop() ?? md5
+  }
 
   const crumbs = segments(path)
 
@@ -736,11 +749,23 @@ export function TagAssignBrowser({
                       // to accumulate.
                       <>
                       <input
-                        value={activeValues[0] ?? ''}
+                        value={
+                          category.id === 'derivedFrom' && activeValues[0]
+                            ? labelForMd5(activeValues[0])
+                            : activeValues[0] ?? ''
+                        }
                         list={category.id === 'derivedFrom' ? 'derived-from-files' : undefined}
                         onChange={(e) => {
-                          const text = e.target.value
-                          setPendingTags((prev) => ({ ...prev, [category.id]: text.trim() ? [text] : [] }))
+                          const text = e.target.value.trim()
+                          // Picked from the list: store what the file is, not
+                          // what it's called. Typed freehand: store the words,
+                          // since there's nothing to resolve them to.
+                          const picked =
+                            category.id === 'derivedFrom'
+                              ? visibleFiles.find((f) => f.name === text || labelFor(f) === text)
+                              : undefined
+                          const value = picked?.md5 ?? text
+                          setPendingTags((prev) => ({ ...prev, [category.id]: value ? [value] : [] }))
                         }}
                         placeholder={category.id === 'derivedFrom' ? 'Pick the original…' : `${category.name}…`}
                         className="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
