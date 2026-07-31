@@ -64,10 +64,14 @@ export function ImageViewer({
         className="relative flex max-h-[90vh] w-full max-w-[95vw] flex-col gap-3 sm:flex-row sm:items-start sm:justify-center"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Fixed to the viewport, not the image container: positioned above
+            the container it sat off the top of a phone screen, leaving no way
+            out of a full-size picture at all. */}
         <button
           onClick={onClose}
-          className="absolute -top-9 right-0 rounded-lg bg-white/10 px-3 py-2 text-white hover:bg-white/20 dark:bg-black/40 dark:hover:bg-black/60"
-          title="Close (ESC)"
+          className="fixed right-3 z-10 rounded-full bg-black/60 px-3 py-2 text-lg leading-none text-white hover:bg-black/80 [top:max(0.75rem,env(safe-area-inset-top))]"
+          title="Close (Esc)"
+          aria-label="Close"
         >
           ✕
         </button>

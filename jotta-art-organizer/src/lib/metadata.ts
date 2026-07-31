@@ -55,11 +55,7 @@ export const KNOWN_CATEGORY_NAMES: Record<string, string> = {
   copyright: 'Copyright',
   style: 'Style',
   subject: 'Subject',
-  palette: 'Palette',
   framed: 'Framed',
-  mood: 'Mood',
-  suggestedStyle: 'Suggested style',
-  motion: 'Motion',
   figures: 'Figures',
 }
 
@@ -73,7 +69,7 @@ export function ensureCategoriesForTags(categories: Category[], tags: Record<str
     let idx = next.findIndex((c) => c.id === categoryId)
     if (idx === -1) {
       // AI-classification categories have a known closed list (Style,
-      // Subject, Palette, Framed, Mood) — seed it in full on first use so
+      // Subject, Framed) — seed it in full on first use so
       // every surface (this editor, Categories, Browse by tag) shows the
       // complete picker immediately instead of only whichever values have
       // happened to be assigned so far.
@@ -134,7 +130,7 @@ function emptyStore(): MetadataStore {
   return { categories: [], artworks: [] }
 }
 
-// Style, Subject, Palette, Framed and Mood are closed vocabularies, so a
+// Style, Subject and Framed are closed vocabularies, so a
 // value outside the canonical list is invalid by definition — a leftover
 // from an older vocabulary, or the nested arrays a briefly-wrong
 // classification wrote (which render as "Calm/Serene,Dreamy/Mystical", one
@@ -152,7 +148,21 @@ function cleanTagValues(categoryId: string, values: unknown): string[] {
 // they produced a value per picture, which groups nothing and buries the
 // categories that do — so they're shown in the properties panel instead, and
 // dropped here so earlier runs don't leave them behind.
-const RETIRED_CATEGORY_IDS = new Set(['dimensions', 'xResolution', 'yResolution', 'camera', 'authors'])
+// Palette, Mood, Motion and Suggested style are retired for a different
+// reason: they asked a machine to have an opinion about someone's own work.
+// Style, Subject, Framed and Figures describe what is there; the rest read
+// as a verdict on it, which is not a thing to hand to a classifier.
+const RETIRED_CATEGORY_IDS = new Set([
+  'dimensions',
+  'xResolution',
+  'yResolution',
+  'camera',
+  'authors',
+  'palette',
+  'mood',
+  'motion',
+  'suggestedStyle',
+])
 
 // Dates worth having, and dates worth having only in the absence of one.
 // When a piece was digitised, when Google received it, and when it reached

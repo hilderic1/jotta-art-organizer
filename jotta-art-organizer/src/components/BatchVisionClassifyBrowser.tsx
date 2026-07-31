@@ -158,9 +158,8 @@ export function BatchVisionClassifyBrowser({
         described are skipped when you run a folder again, so nothing is paid for twice.
       </div>
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Looks at each picture and suggests how to describe it: its style, what&rsquo;s in it, the colours, the mood,
-        whether it has a border baked in, and the sense of movement. In abstract work it will also name shapes it
-        can make out, and propose a style you don&rsquo;t have yet.
+        Looks at each picture and suggests how to describe it: its style, what&rsquo;s in it, whether it has a
+        border baked in, and any shapes it can make out in abstract work.
       </p>
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
         These are one machine&rsquo;s impressions of a picture — worth reviewing rather than trusting. Pause any

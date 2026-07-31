@@ -570,20 +570,14 @@ export function TagAssignBrowser({
               {classifyError && <p className="mt-1 text-red-600 dark:text-red-400">{classifyError}</p>}
               {classifyResult && (
                 <p className="mt-1 text-zinc-600 dark:text-zinc-400">
-                  🎨 {classifyResult.style.join(' + ')} · {classifyResult.subject} · {classifyResult.palette} ·{' '}
-                  {classifyResult.framed === 'Yes' ? 'Framed' : 'Unframed'} · {classifyResult.mood.join(' + ')} ·{' '}
-                  {classifyResult.motion}
+                  🎨 {classifyResult.style.join(' + ')} · {classifyResult.subject} ·{' '}
+                  {classifyResult.framed === 'Yes' ? 'Framed' : 'Unframed'}
                   {classifyResult.figures && classifyResult.figures.length > 0 && (
                     <span className="ml-1">· sees {classifyResult.figures.join(', ')}</span>
                   )}
                   {classifyResult.observation && (
                     <span className="mt-1 block italic text-zinc-500 dark:text-zinc-500">
                       “{classifyResult.observation}”
-                    </span>
-                  )}
-                  {classifyResult.suggestedStyle && (
-                    <span className="ml-1 text-amber-700 dark:text-amber-400">
-                      · suggests “{classifyResult.suggestedStyle}”
                     </span>
                   )}
                 </p>

@@ -1,5 +1,5 @@
-// Checkpointed, resumable AI vision classification (style/subject/palette/
-// framed/mood) across a folder tree. Unlike every other batch tool in this
+// Checkpointed, resumable AI vision classification (style/subject/framing/
+// figures) across a folder tree. Unlike every other batch tool in this
 // app, each file here costs real money (a paid Anthropic API call per
 // image), so concurrency is kept low and already-classified files are
 // skipped by default — re-running a batch shouldn't re-spend on unchanged

@@ -5,11 +5,7 @@ import {
   STYLE_VALUES,
   STYLE_DEFINITIONS,
   SUBJECT_VALUES,
-  PALETTE_VALUES,
   FRAMED_VALUES,
-  MOOD_VALUES,
-  MOTION_VALUES,
-  MOTION_DEFINITIONS,
   PROCESS_STYLES,
 } from '@/lib/visionClassify'
 
@@ -17,7 +13,7 @@ const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001'
 
 const CLASSIFY_TOOL = {
   name: 'classify_artwork',
-  description: 'Classify the visual style, subject, color palette, framing, and mood of an artwork image.',
+  description: 'Classify the visual style and subject of an artwork, its framing, and any forms visible in it.',
   input_schema: {
     type: 'object',
     properties: {
@@ -45,25 +41,7 @@ const CLASSIFY_TOOL = {
           .join('; ')}.`,
       },
       subject: { type: 'string', enum: SUBJECT_VALUES, description: 'What the image is mainly of.' },
-      palette: { type: 'string', enum: PALETTE_VALUES, description: 'The dominant color temperature/palette.' },
       framed: { type: 'string', enum: FRAMED_VALUES, description: 'Whether a decorative border/mat/frame is baked into the image itself.' },
-      mood: {
-        type: 'array',
-        items: { type: 'string', enum: MOOD_VALUES },
-        minItems: 1,
-        maxItems: 2,
-        description:
-          'The emotional tone, strongest first. A second may be added where the piece genuinely holds two at once (calm and dreamlike, say), but most work reads as one — do not add a second to fill the slot.',
-      },
-      motion: {
-        type: 'string',
-        enum: MOTION_VALUES,
-        description: `The sense of movement the piece conveys, which is often what it is reaching for. Judge the movement the image evokes, not literal depicted action. Definitions — ${Object.entries(
-          MOTION_DEFINITIONS
-        )
-          .map(([value, meaning]) => `${value}: ${meaning}`)
-          .join('; ')}.`,
-      },
       figures: {
         type: 'array',
         items: { type: 'string' },
@@ -71,13 +49,8 @@ const CLASSIFY_TOOL = {
         description:
           'Forms discernible within the work, named in one or two words each — "bird", "face in profile", "dancer", "horse". These are frequently emergent rather than deliberately drawn: shapes that resolve out of colour and texture. Name one only where the form genuinely reads as that thing to an attentive viewer; return an empty array when nothing does, and do not manufacture figures out of incidental texture.',
       },
-      suggestedStyle: {
-        type: 'string',
-        description:
-          'A style that genuinely describes this piece but is missing from the list, in two or three words — otherwise an empty string. Answer every time: an empty string is the expected answer and means the listed styles cover it. Do not restate a style already offered.',
-      },
     },
-    required: ['observation', 'style', 'subject', 'palette', 'framed', 'mood', 'motion', 'figures', 'suggestedStyle'],
+    required: ['observation', 'style', 'subject', 'framed', 'figures'],
   },
 }
 
@@ -185,8 +158,6 @@ export async function POST(request: NextRequest) {
     if (style.length > 1) style = style.filter((s) => s !== 'Other')
     if (style.length === 0) style = ['Other']
 
-    const mood = pick(input.mood, MOOD_VALUES, 2)
-    const motion = pick(input.motion, MOTION_VALUES, 1)[0] ?? 'Still'
 
     // Figures are free text by design, so they get the same treatment as a
     // suggestion: trimmed, length-capped, deduplicated, and dropped when
@@ -201,15 +172,7 @@ export async function POST(request: NextRequest) {
       ),
     ].slice(0, 4)
 
-    // A suggestion is free text, so it gets the tightest handling of all:
-    // trimmed, length-capped, and dropped if it just restates a style we
-    // already offer — otherwise "Abstract digital art" would arrive as a
-    // near-duplicate of the real value and defeat the point of reviewing.
-    const proposed = typeof input.suggestedStyle === 'string' ? input.suggestedStyle.trim().slice(0, 40) : ''
-    const isRestatement = STYLE_VALUES.some((v) => v.toLowerCase() === proposed.toLowerCase())
-    const suggestedStyle = proposed.length >= 3 && !isRestatement ? proposed : undefined
-
-    return NextResponse.json({ ...input, style, mood, motion, figures, suggestedStyle })
+    return NextResponse.json({ ...input, style, figures })
   } catch (err) {
     if (err instanceof Error && err.message === 'NOT_AUTHENTICATED') {
       return NextResponse.json({ error: 'Not connected to Jottacloud yet.' }, { status: 401 })
