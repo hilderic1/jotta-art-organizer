@@ -651,15 +651,19 @@ export function TagAssignBrowser({
                     </div>
                   )
                   return (
-                  <div key={category.id}>
-                    <p className="mb-1 text-xs font-medium text-zinc-500">
+                  // Label in a fixed column with its values beside it, rather
+                  // than a heading above them: a stack of two dozen
+                  // heading-then-pills blocks is what made this unreadable.
+                  <div key={category.id} className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-3">
+                    <p className="shrink-0 text-xs font-medium text-zinc-500 sm:w-20 sm:text-right">
                       {category.name}
                       {(CATEGORY_VALUE_LIMITS[category.id] ?? 0) > 1 && (
                         <span className="ml-1 font-normal text-zinc-400">
-                          (up to {CATEGORY_VALUE_LIMITS[category.id]})
+                          ({CATEGORY_VALUE_LIMITS[category.id]})
                         </span>
                       )}
                     </p>
+                    <div className="min-w-0 flex-1">
                     {category.freeText ? (
                       // One field holding this file's own wording. No Add
                       // button: the text *is* the value, and there's nothing
@@ -716,6 +720,7 @@ export function TagAssignBrowser({
                         {!isClosedList && addInput}
                       </div>
                     )}
+                    </div>
                   </div>
                 )
               })}
@@ -736,7 +741,7 @@ export function TagAssignBrowser({
                   <div className="mt-2 flex flex-col gap-2">
                     {fromFile.map((category) => (
                       <div key={category.id} className="flex flex-wrap items-baseline gap-2">
-                        <span className="w-32 shrink-0 text-xs text-zinc-500">{category.name}</span>
+                        <span className="shrink-0 text-xs text-zinc-500 sm:w-20 sm:text-right">{category.name}</span>
                         {(pendingTags[category.id] ?? []).map((value) => (
                           <button
                             key={value}
