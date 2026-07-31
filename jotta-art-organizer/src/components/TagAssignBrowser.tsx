@@ -70,6 +70,29 @@ function sortFiles(files: JottaEntry[], sort: Sort, dateOf: (f: JottaEntry) => n
 // the full list.
 const LARGE_CATEGORY_THRESHOLD = 10
 
+// Read from the file rather than decided by you. Editable, but rarely edited
+// — so they're tucked behind one collapsed heading instead of taking two
+// thirds of the dialog before the first thing you actually choose.
+const READ_FROM_FILE_IDS = new Set([
+  'people',
+  'favorited',
+  'year',
+  'photoTakenTime',
+  'creationTime',
+  'geoData',
+  'source',
+  'dateAcquired',
+  'jottaCreated',
+  'fileChanged',
+  'editorCreated',
+  'sourceType',
+  'credit',
+  'photoUsed',
+  'drawTime',
+  'programName',
+  'copyright',
+])
+
 export function TagAssignBrowser({
   categories,
   artworks,
@@ -431,58 +454,70 @@ export function TagAssignBrowser({
           className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4"
           onClick={() => setEditing(null)}
         >
+          {/* Header and actions are pinned, the middle scrolls. Cancel used to
+              sit below two dozen categories, so leaving the dialog on a phone
+              meant scrolling the whole way down first. */}
           <div
-            className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-lg bg-white p-4 dark:bg-zinc-900"
+            className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg bg-white dark:bg-zinc-900"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="mb-1 truncate font-medium" title={editing.name}>
-              {labelFor(editing)}
-            </h3>
-            {labelFor(editing) !== editing.name && (
-              <p className="mb-1 truncate text-xs text-zinc-400">{editing.name}</p>
-            )}
-
-            {/* The tag list is long enough to scroll past the filename, and
-                the point of tagging is what the picture looks like — so keep
-                it in view. Clicking opens the full-size viewer. */}
-            {location && (
-              <a
-                href={viewUrl(location, editing.path)}
-                target="_blank"
-                rel="noreferrer"
-                className="mb-3 block"
-                title="Open full size"
+            <div className="flex items-start justify-between gap-2 border-b border-zinc-200 p-3 dark:border-zinc-800">
+              <div className="min-w-0">
+                <h3 className="truncate font-medium" title={editing.name}>
+                  {labelFor(editing)}
+                </h3>
+                {labelFor(editing) !== editing.name && (
+                  <p className="truncate text-xs text-zinc-400">{editing.name}</p>
+                )}
+              </div>
+              <button
+                onClick={() => setEditing(null)}
+                className="shrink-0 rounded px-2 py-1 text-lg leading-none text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                title="Close (Esc)"
               >
-                <Thumbnail
-                  loc={location}
-                  path={editing.path}
-                  alt={editing.name}
-                  px={512}
-                  className="mx-auto max-h-48 w-auto rounded object-contain"
-                />
-              </a>
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4">
+            {/* Picture and what the file says, side by side: the properties
+                used to push every tag another screen down. */}
+            {location && (
+              <div className="mb-3 flex gap-3">
+                <a
+                  href={viewUrl(location, editing.path)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0"
+                  title="Open full size"
+                >
+                  <Thumbnail
+                    loc={location}
+                    path={editing.path}
+                    alt={editing.name}
+                    px={512}
+                    className="max-h-40 w-32 rounded object-contain"
+                  />
+                </a>
+                <div className="min-w-0 flex-1">
+                  {filePropsPreview && (
+                    <>
+                      <FileProperties meta={filePropsPreview} />
+                      <button
+                        onClick={useFilePropsAsTags}
+                        className="mt-1 rounded bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-500"
+                      >
+                        Use as tags
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
             )}
 
             {metadataLoading && <p className="mb-3 text-xs text-zinc-500">Checking for Google Photos metadata…</p>}
             {metadataAttempted && !metadataLoading && !metadataPreview && !filePropsPreview && (
               <p className="mb-3 text-xs text-zinc-400">No Google Photos metadata or readable file properties found.</p>
-            )}
-            {/* Shown even when a sidecar exists: the file knows things the
-                sidecar doesn't, and a photo with people tagged still has a
-                camera and an exposure worth seeing. */}
-            {filePropsPreview && (
-              <div className="mb-3 rounded-lg border border-zinc-200 p-2 dark:border-zinc-800">
-                <p className="mb-1 text-xs font-medium text-zinc-500">File properties</p>
-                <FileProperties meta={filePropsPreview} />
-                <div className="mt-1">
-                  <button
-                    onClick={useFilePropsAsTags}
-                    className="rounded bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-500"
-                  >
-                    Use as tags
-                  </button>
-                </div>
-              </div>
             )}
             {metadataPreview && (
               <div className="mb-3 rounded-lg border border-zinc-200 p-2 text-xs dark:border-zinc-800">
@@ -580,7 +615,7 @@ export function TagAssignBrowser({
                   values yet — this is where tags are authored, so a category
                   you just created has to be reachable. Browse still hides
                   empty ones, where there is nothing to filter by. */}
-              {orderedCategories.map((category) => {
+              {orderedCategories.filter((c) => !READ_FROM_FILE_IDS.has(c.id)).map((category) => {
                   const activeValues = pendingTags[category.id] ?? []
                   // A fixed closed list always shows its full picker, however
                   // many values it holds. The threshold is for open-ended
@@ -661,10 +696,6 @@ export function TagAssignBrowser({
                           ))}
                         </div>
                         {addInput}
-                        <p className="text-[11px] text-zinc-400">
-                          {category.values.length} values in this category — too many to list, showing only this
-                          file&rsquo;s.
-                        </p>
                       </div>
                     ) : (
                       <div className="flex flex-col gap-2">
@@ -695,18 +726,70 @@ export function TagAssignBrowser({
                 )
               })}
             </div>
-            {saveError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{saveError}</p>}
-            <div className="mt-4 flex justify-end gap-2">
-              <button className="text-sm text-zinc-500" onClick={() => setEditing(null)}>
-                Cancel
-              </button>
-              <button
-                disabled={saving}
-                onClick={handleSave}
-                className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-              >
-                {saving ? 'Saving…' : 'Save tags'}
-              </button>
+
+            {/* Everything the file told us, behind one heading. Compact on
+                purpose: these are corrected occasionally, not chosen, so a
+                current value and a way to change it is the whole job. */}
+            {(() => {
+              const fromFile = orderedCategories.filter((c) => READ_FROM_FILE_IDS.has(c.id))
+              if (fromFile.length === 0) return null
+              const setCount = fromFile.filter((c) => (pendingTags[c.id]?.length ?? 0) > 0).length
+              return (
+                <details className="mt-4">
+                  <summary className="cursor-pointer text-xs font-medium text-zinc-500">
+                    Read from the file — {setCount} of {fromFile.length} set
+                  </summary>
+                  <div className="mt-2 flex flex-col gap-2">
+                    {fromFile.map((category) => (
+                      <div key={category.id} className="flex flex-wrap items-baseline gap-2">
+                        <span className="w-32 shrink-0 text-xs text-zinc-500">{category.name}</span>
+                        {(pendingTags[category.id] ?? []).map((value) => (
+                          <button
+                            key={value}
+                            onClick={() => toggleValue(category.id, value)}
+                            className="rounded-full bg-indigo-600 px-2 py-0.5 text-xs text-white"
+                            title="Remove"
+                          >
+                            {value} ✕
+                          </button>
+                        ))}
+                        {(pendingTags[category.id]?.length ?? 0) === 0 && (
+                          <span className="text-xs text-zinc-400">—</span>
+                        )}
+                        <input
+                          value={newValueDrafts[category.id] ?? ''}
+                          onChange={(e) => setNewValueDrafts((prev) => ({ ...prev, [category.id]: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              addValue(category.id, newValueDrafts[category.id] ?? '')
+                            }
+                          }}
+                          placeholder="add…"
+                          className="w-24 rounded border border-zinc-300 px-1 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )
+            })()}
+            </div>
+
+            <div className="border-t border-zinc-200 p-3 dark:border-zinc-800">
+              {saveError && <p className="mb-2 text-sm text-red-600 dark:text-red-400">{saveError}</p>}
+              <div className="flex justify-end gap-2">
+                <button className="text-sm text-zinc-500" onClick={() => setEditing(null)}>
+                  Cancel
+                </button>
+                <button
+                  disabled={saving}
+                  onClick={handleSave}
+                  className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+                >
+                  {saving ? 'Saving…' : 'Save tags'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
