@@ -133,7 +133,9 @@ export function TagAssignBrowser({
   // under the cursor.
   const [initiallyTagged, setInitiallyTagged] = useState<Set<string>>(new Set())
   const [sort, setSort] = useState<Sort>('date-desc')
-  const [viewingFull, setViewingFull] = useState(false)
+  // A path rather than a flag: the viewer also opens the linked original,
+  // which is a different file from the one being edited.
+  const [viewingPath, setViewingPath] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(FILES_PER_PAGE)
 
   useEffect(() => {
@@ -398,6 +400,16 @@ export function TagAssignBrowser({
     return inFolder?.name ?? known?.path.split('/').pop() ?? md5
   }
 
+  // The linked original as a file we can show: in this folder if it's here,
+  // otherwise wherever the tag store last saw it.
+  function originalFor(md5: string): { path: string; name: string } | null {
+    const here = listing?.files.find((f) => f.md5 === md5)
+    if (here) return { path: here.path, name: here.name }
+    const known = artworkByMd5.get(md5)
+    if (known) return { path: known.path, name: known.path.split('/').pop() ?? md5 }
+    return null
+  }
+
   const crumbs = segments(path)
 
   if (!location) {
@@ -569,7 +581,7 @@ export function TagAssignBrowser({
                     file: installed as a home-screen app there is no browser
                     chrome, so a new tab showing an image has nothing to close
                     it with. */}
-                <button onClick={() => setViewingFull(true)} className="shrink-0" title="Open full size">
+                <button onClick={() => setViewingPath(editing.path)} className="shrink-0" title="Open full size">
                   <Thumbnail
                     loc={location}
                     path={editing.path}
@@ -748,6 +760,7 @@ export function TagAssignBrowser({
                       // button: the text *is* the value, and there's nothing
                       // to accumulate.
                       <>
+                      <div className="flex items-center gap-2">
                       <input
                         value={
                           category.id === 'derivedFrom' && activeValues[0]
@@ -770,6 +783,35 @@ export function TagAssignBrowser({
                         placeholder={category.id === 'derivedFrom' ? 'Pick the original…' : `${category.name}…`}
                         className="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
                       />
+                      {/* Proof the link points where you meant it to: a hash
+                          resolved to a title is still just words, and the
+                          original is the one thing that settles it. Opens in
+                          the in-app viewer rather than a new tab, which an
+                          installed PWA gives no way back from. */}
+                      {category.id === 'derivedFrom' &&
+                        activeValues[0] &&
+                        location &&
+                        (() => {
+                          const original = originalFor(activeValues[0])
+                          if (!original) return null
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setViewingPath(original.path)}
+                              className="shrink-0"
+                              title={`Open ${original.name}`}
+                            >
+                              <Thumbnail
+                                loc={location}
+                                path={original.path}
+                                alt={original.name}
+                                px={64}
+                                className="h-8 w-8 shrink-0 rounded object-cover ring-1 ring-zinc-300 dark:ring-zinc-700"
+                              />
+                            </button>
+                          )
+                        })()}
+                      </div>
                       {/* The folder's own pictures as suggestions, so linking
                           an original is a choice rather than remembering a
                           filename like 47C020DA-E0C5-468B-9266-529B7E5FABC9. */}
@@ -903,14 +945,14 @@ export function TagAssignBrowser({
       )}
 
       {/* Above the editor, closing back to it rather than out of the app. */}
-      {viewingFull && editing && location && (
+      {viewingPath && location && (
         <ImageViewer
           loc={location}
-          path={editing.path}
-          title={labelFor(editing)}
+          path={viewingPath}
+          title={viewingPath.split('/').pop()}
           tags={pendingTags}
           categories={categories}
-          onClose={() => setViewingFull(false)}
+          onClose={() => setViewingPath(null)}
         />
       )}
     </div>
