@@ -57,6 +57,10 @@ export const KNOWN_CATEGORY_NAMES: Record<string, string> = {
   subject: 'Subject',
   framed: 'Framed',
   figures: 'Figures',
+  // Points an AI-enhanced piece back at the original it came from. The
+  // enhanced file's own credentials name the tool that made it and claim it
+  // as generated; nothing in it records whose work it started from.
+  derivedFrom: 'Enhanced from',
 }
 
 // Auto-registers any category/value referenced in `tags` that doesn't exist
@@ -243,7 +247,7 @@ async function loadShardsByKeys(
   opts?: { concurrency?: number }
 ): Promise<ArtworkTags[]> {
   if (keys.length === 0) return []
-  const concurrency = opts?.concurrency ?? 8
+  const concurrency = opts?.concurrency ?? 16
   const results: ArtworkTags[][] = new Array(keys.length)
   let idx = 0
   let inFlight = 0
@@ -305,8 +309,8 @@ export async function loadMetadata(loc: MountpointRef): Promise<MetadataStore> {
 // files' md5s say exactly which shards could hold their records, usually a
 // handful. A big tree would cost more to list than it saves, so the walk
 // gives up early and the caller falls back to reading every shard.
-const FOLDER_SCAN_BUDGET = 12
-const FILE_SCAN_BUDGET = 8000
+const FOLDER_SCAN_BUDGET = 60
+const FILE_SCAN_BUDGET = 25000
 
 async function collectFolderMd5s(folder: MountpointRef & { path?: string }): Promise<Set<string> | null> {
   const md5s = new Set<string>()
@@ -314,7 +318,7 @@ async function collectFolderMd5s(folder: MountpointRef & { path?: string }): Pro
   let visited = 0
 
   while (queue.length > 0) {
-    const batch = queue.splice(0, 4)
+    const batch = queue.splice(0, 8)
     const listings = await Promise.all(batch.map((p) => listFolder(folder, p)))
     for (const listing of listings) {
       visited++

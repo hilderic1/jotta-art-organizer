@@ -298,8 +298,22 @@ export function TagAssignBrowser({
   // Categories the file already carries come first, so what's set is visible
   // without scrolling past everything that isn't. Sort is stable, so within
   // each group the original order is preserved.
-  const orderedCategories = [...effectiveCategories].sort(
-    (a, b) => Number(!initiallyTagged.has(a.id)) - Number(!initiallyTagged.has(b.id))
+  // Offered on every file rather than waiting to be created in Categories:
+  // linking an enhanced piece to the original is the point of the feature,
+  // and a category you have to invent first would never get used.
+  const withDerivedFrom: Category[] = effectiveCategories.some((c) => c.id === 'derivedFrom')
+    ? effectiveCategories
+    : [
+        ...effectiveCategories,
+        { id: 'derivedFrom', name: KNOWN_CATEGORY_NAMES.derivedFrom, values: [], freeText: true },
+      ]
+
+  const orderedCategories = useMemo(
+    () =>
+      [...withDerivedFrom].sort(
+        (a, b) => Number(!initiallyTagged.has(a.id)) - Number(!initiallyTagged.has(b.id))
+      ),
+    [withDerivedFrom, initiallyTagged]
   )
 
   // The best date this file has, in order of how much it actually tells you:
@@ -690,7 +704,7 @@ export function TagAssignBrowser({
                         className="flex-1 rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
                       />
                       <datalist id={`category-${category.id}-values`}>
-                        {category.values.map((value) => (
+                        {(category.id === 'derivedFrom' ? visibleFiles.map((f) => f.name) : category.values).map((value) => (
                           <option key={value} value={value} />
                         ))}
                       </datalist>
@@ -720,15 +734,32 @@ export function TagAssignBrowser({
                       // One field holding this file's own wording. No Add
                       // button: the text *is* the value, and there's nothing
                       // to accumulate.
+                      <>
                       <input
                         value={activeValues[0] ?? ''}
+                        list={category.id === 'derivedFrom' ? 'derived-from-files' : undefined}
                         onChange={(e) => {
                           const text = e.target.value
                           setPendingTags((prev) => ({ ...prev, [category.id]: text.trim() ? [text] : [] }))
                         }}
-                        placeholder={`${category.name}…`}
+                        placeholder={category.id === 'derivedFrom' ? 'Pick the original…' : `${category.name}…`}
                         className="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
                       />
+                      {/* The folder's own pictures as suggestions, so linking
+                          an original is a choice rather than remembering a
+                          filename like 47C020DA-E0C5-468B-9266-529B7E5FABC9. */}
+                      {category.id === 'derivedFrom' && (
+                        <datalist id="derived-from-files">
+                          {visibleFiles
+                            .filter((f) => f.path !== editing.path)
+                            .map((f) => (
+                              <option key={f.path} value={f.name}>
+                                {labelFor(f)}
+                              </option>
+                            ))}
+                        </datalist>
+                      )}
+                      </>
                     ) : isLarge ? (
                       <div className="flex flex-col gap-2">
                         <div className="flex flex-wrap gap-2">

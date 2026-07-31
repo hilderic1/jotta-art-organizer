@@ -54,6 +54,8 @@ export const CATEGORY_VALUE_LIMITS: Record<string, number> = {
   [SUBJECT_CATEGORY_ID]: 1,
   [FRAMED_CATEGORY_ID]: 1,
   [FIGURES_CATEGORY_ID]: 4,
+  // One original per enhanced piece — picking another replaces it.
+  derivedFrom: 1,
 }
 
 export const STYLE_VALUES = Object.keys(STYLE_DEFINITIONS)
