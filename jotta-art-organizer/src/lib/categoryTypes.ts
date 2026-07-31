@@ -2,7 +2,18 @@ import type { Category } from './metadata'
 
 export type CategoryType = 'date' | 'geo' | 'regular'
 
-const DATE_CATEGORY_IDS = new Set(['photoTakenTime', 'creationTime', 'year', 'dateAcquired'])
+// Every category holding a date gets the range filter, not just the ones that
+// existed when this was written. A date rendered as pills is one value per day
+// — hundreds of buttons that filter to a single afternoon each.
+const DATE_CATEGORY_IDS = new Set([
+  'photoTakenTime',
+  'creationTime',
+  'year',
+  'dateAcquired',
+  'jottaCreated',
+  'editorCreated',
+  'fileChanged',
+])
 const GEO_CATEGORY_IDS = new Set(['geoData'])
 
 export function getCategoryType(categoryId: string): CategoryType {
