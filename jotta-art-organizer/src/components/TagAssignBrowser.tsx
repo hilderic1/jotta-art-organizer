@@ -71,6 +71,12 @@ function sortFiles(files: JottaEntry[], sort: Sort, dateOf: (f: JottaEntry) => n
 // the full list.
 const LARGE_CATEGORY_THRESHOLD = 10
 
+// A folder of several hundred pictures built a tile for every one of them,
+// and rebuilt them all whenever anything changed. Rendered a page at a time
+// instead — lazy loading already kept the images off the wire, but the DOM
+// itself was the cost on a phone.
+const FILES_PER_PAGE = 100
+
 // Read from the file rather than decided by you. Editable, but rarely edited
 // — so they're tucked behind one collapsed heading instead of taking two
 // thirds of the dialog before the first thing you actually choose.
@@ -128,6 +134,7 @@ export function TagAssignBrowser({
   const [initiallyTagged, setInitiallyTagged] = useState<Set<string>>(new Set())
   const [sort, setSort] = useState<Sort>('date-desc')
   const [viewingFull, setViewingFull] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(FILES_PER_PAGE)
 
   useEffect(() => {
     if (!location) return
@@ -146,6 +153,10 @@ export function TagAssignBrowser({
       ignore = true
     }
   }, [location, path])
+
+  useEffect(() => {
+    setVisibleCount(FILES_PER_PAGE)
+  }, [listing, sort])
 
   function openEditor(entry: JottaEntry) {
     const existing = entry.md5 ? artworks.find((a) => a.md5 === entry.md5) : undefined
@@ -441,7 +452,7 @@ export function TagAssignBrowser({
           </span>
         </div>
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {visibleFiles.map((f) => {
+          {visibleFiles.slice(0, visibleCount).map((f) => {
               const tagCount = (f.md5 && tagCountByMd5.get(f.md5)) || 0
               const hasMetadata = namesWithSidecar.has(f.name)
               return (
@@ -476,6 +487,19 @@ export function TagAssignBrowser({
               )
             })}
         </ul>
+        {visibleFiles.length > visibleCount && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setVisibleCount((n) => n + FILES_PER_PAGE)}
+              className="rounded border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            >
+              Show more
+            </button>
+            <span className="text-xs text-zinc-400">
+              showing {visibleCount} of {visibleFiles.length}
+            </span>
+          </div>
+        )}
         </>
       )}
 
