@@ -303,8 +303,16 @@ export function TagAssignBrowser({
   // Offered on every file rather than waiting to be created in Categories:
   // linking an enhanced piece to the original is the point of the feature,
   // and a category you have to invent first would never get used.
+  // Always free text, whatever produced its category entry. Both the
+  // synthesised entry above and a saved one carry no freeText flag, so the
+  // moment a link was set the row switched to pills — the original showed as
+  // a bare tag, with no field to edit and nowhere for the thumbnail to go.
   const withDerivedFrom: Category[] = effectiveCategories.some((c) => c.id === 'derivedFrom')
-    ? effectiveCategories
+    ? effectiveCategories.map((c) =>
+        c.id === 'derivedFrom'
+          ? { ...c, name: KNOWN_CATEGORY_NAMES.derivedFrom, values: [], freeText: true }
+          : c
+      )
     : [
         ...effectiveCategories,
         { id: 'derivedFrom', name: KNOWN_CATEGORY_NAMES.derivedFrom, values: [], freeText: true },
@@ -402,11 +410,15 @@ export function TagAssignBrowser({
 
   // The linked original as a file we can show: in this folder if it's here,
   // otherwise wherever the tag store last saw it.
-  function originalFor(md5: string): { path: string; name: string } | null {
-    const here = listing?.files.find((f) => f.md5 === md5)
+  function originalFor(value: string): { path: string; name: string } | null {
+    const here = listing?.files.find((f) => f.md5 === value)
     if (here) return { path: here.path, name: here.name }
-    const known = artworkByMd5.get(md5)
-    if (known) return { path: known.path, name: known.path.split('/').pop() ?? md5 }
+    const known = artworkByMd5.get(value)
+    if (known) return { path: known.path, name: known.path.split('/').pop() ?? value }
+    // Not a hash: a name typed by hand, or a link made before hashes were
+    // stored. Still worth showing if the folder has a file by that name.
+    const named = listing?.files.find((f) => f.name === value || labelFor(f) === value)
+    if (named) return { path: named.path, name: named.name }
     return null
   }
 
