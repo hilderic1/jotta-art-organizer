@@ -368,9 +368,13 @@ export function TagAssignBrowser({
   // anything close to "Title".
   const titleCategoryId = categories.find((c) => c.id === 'title' || c.name.trim().toLowerCase() === 'title')?.id
 
+  function titleFor(file: JottaEntry): string | undefined {
+    if (!titleCategoryId || !file.md5) return undefined
+    return tagsByMd5.get(file.md5)?.[titleCategoryId]?.[0]?.trim() || undefined
+  }
+
   function labelFor(file: JottaEntry): string {
-    if (!titleCategoryId || !file.md5) return file.name
-    return tagsByMd5.get(file.md5)?.[titleCategoryId]?.[0]?.trim() || file.name
+    return titleFor(file) ?? file.name
   }
 
   // Sorted once per listing rather than on every render, and with the two
@@ -399,10 +403,14 @@ export function TagAssignBrowser({
         (f) =>
           !query ||
           f.name.toLowerCase().includes(query) ||
-          labelFor(f).toLowerCase().includes(query)
+          (titleFor(f)?.toLowerCase().includes(query) ?? false)
       )
+      // Newest first regardless of how the grid is sorted: an original is
+      // almost always something worked on recently, so it should be near the
+      // top before a single character is typed.
+      .sort((a, b) => changedAt(b) - changedAt(a))
       .slice(0, 30)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- labelFor is derived from tagsByMd5
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- titleFor is derived from tagsByMd5
   }, [visibleFiles, derivedSearch, editing, tagsByMd5])
 
   const tagCountByMd5 = useMemo(() => {
@@ -891,7 +899,23 @@ export function TagAssignBrowser({
                                 px={64}
                                 className="h-8 w-8 shrink-0 rounded object-cover"
                               />
-                              <span className="truncate text-xs">{labelFor(f)}</span>
+                              {/* Both, where there are both: the title is
+                                  what the artist calls it, the filename is
+                                  what she'll recognise from anywhere else. */}
+                              <span className="min-w-0 flex-1">
+                                {titleFor(f) && (
+                                  <span className="block truncate text-xs">{titleFor(f)}</span>
+                                )}
+                                <span
+                                  className={
+                                    titleFor(f)
+                                      ? 'block truncate text-[11px] text-zinc-500'
+                                      : 'block truncate text-xs'
+                                  }
+                                >
+                                  {f.name}
+                                </span>
+                              </span>
                             </button>
                           ))}
                         </div>
