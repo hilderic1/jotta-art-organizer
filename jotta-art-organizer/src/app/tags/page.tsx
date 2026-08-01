@@ -22,6 +22,9 @@ export default function TagsPage() {
   const [mode, setMode] = useState<Mode>('assign')
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(false)
   const [selectedBrowseLocation, setSelectedBrowseLocation] = useState<(MountpointRef & { path?: string }) | null>(null)
+  // Bumped to run the load effect again on the same folder — the folder
+  // itself hasn't changed, so nothing else in its dependencies would.
+  const [reloadNonce, setReloadNonce] = useState(0)
 
   useEffect(() => {
     getSessionStatus().then(setSession)
@@ -48,7 +51,12 @@ export default function TagsPage() {
     return () => {
       ignore = true
     }
-  }, [session, selectedBrowseLocation])
+  }, [session, selectedBrowseLocation, reloadNonce])
+
+  function retryLoad() {
+    setLoadError(null)
+    setReloadNonce((n) => n + 1)
+  }
 
   // Picking a folder always discards the previous folder's data, so step 2
   // (the loading state) is what renders next rather than stale tags.
@@ -162,10 +170,32 @@ export default function TagsPage() {
     )
   }
 
+  // A failed load used to render the message and nothing else, which left no
+  // way out but force-quitting the app — harsh for what is usually one
+  // dropped request on a phone. Both ways forward are offered: try the same
+  // folder again, or go back and pick another.
   if (loadError) {
     return (
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
         <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
+        <p className="text-sm text-zinc-500">
+          Nothing has been lost — your tags are stored in Jottacloud, and this only failed to read
+          them.
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={retryLoad}
+            className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+          >
+            Try again
+          </button>
+          <button
+            onClick={clearFolder}
+            className="rounded border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          >
+            Choose a different folder
+          </button>
+        </div>
       </div>
     )
   }
