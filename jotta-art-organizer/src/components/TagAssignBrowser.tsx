@@ -35,7 +35,7 @@ function segments(path: string): string[] {
   return path.split('/').filter(Boolean)
 }
 
-type Sort = 'date-desc' | 'date-asc' | 'modified-desc' | 'name'
+type Sort = 'date-desc' | 'date-asc' | 'modified-desc' | 'name' | 'title'
 
 // Jottacloud returns a folder in its own order, which is neither stable nor
 // meaningful — hence sorting here rather than relying on it. Name uses a
@@ -44,9 +44,18 @@ function changedAt(file: JottaEntry): number {
   return jottaTime(file.modified) || jottaTime(file.created)
 }
 
-function sortFiles(files: JottaEntry[], sort: Sort, dateOf: (f: JottaEntry) => number): JottaEntry[] {
+function sortFiles(
+  files: JottaEntry[],
+  sort: Sort,
+  dateOf: (f: JottaEntry) => number,
+  labelOf: (f: JottaEntry) => string
+): JottaEntry[] {
   const sorted = [...files]
   switch (sort) {
+    // What the tiles actually show — an untitled piece falls back to its
+    // filename, so the order matches the labels rather than the storage.
+    case 'title':
+      return sorted.sort((a, b) => labelOf(a).localeCompare(labelOf(b), undefined, { numeric: true }))
     case 'date-desc':
       return sorted.sort((a, b) => dateOf(b) - dateOf(a))
     case 'date-asc':
@@ -145,6 +154,9 @@ export function TagAssignBrowser({
   // under the cursor.
   const [initiallyTagged, setInitiallyTagged] = useState<Set<string>>(new Set())
   const [sort, setSort] = useState<Sort>('date-desc')
+  // Narrows the grid by title or filename. A folder runs to hundreds of
+  // pictures, and scrolling for the one you meant is the slow way to find it.
+  const [fileSearch, setFileSearch] = useState('')
   // A path rather than a flag: the viewer also opens the linked original,
   // which is a different file from the one being edited.
   const [viewingPath, setViewingPath] = useState<string | null>(null)
@@ -174,7 +186,12 @@ export function TagAssignBrowser({
 
   useEffect(() => {
     setVisibleCount(FILES_PER_PAGE)
-  }, [listing, sort])
+  }, [listing, sort, fileSearch])
+
+  // A search typed in one folder shouldn't silently hide most of the next.
+  useEffect(() => {
+    setFileSearch('')
+  }, [location, path])
 
   function openEditor(entry: JottaEntry) {
     const existing = entry.md5 ? artworks.find((a) => a.md5 === entry.md5) : undefined
@@ -395,13 +412,25 @@ export function TagAssignBrowser({
   // maps built once. Both were quadratic against folder size on each render.
   const visibleFiles = useMemo(() => {
     const files = listing?.files ?? []
+    const query = fileSearch.trim().toLowerCase()
     return sortFiles(
-      files.filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json')),
+      files
+        .filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json'))
+        // Title first, since that's what the tiles show and what the artist
+        // knows a piece by; filename still matches, because it's the name
+        // everything outside this app uses.
+        .filter(
+          (f) =>
+            !query ||
+            titleFor(f)?.toLowerCase().includes(query) ||
+            f.name.toLowerCase().includes(query)
+        ),
       sort,
-      dateOf
+      dateOf,
+      labelFor
     )
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- dateOf is derived from dateByMd5
-  }, [listing, sort, dateByMd5])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dateOf and titleFor are derived from dateByMd5/tagsByMd5
+  }, [listing, sort, dateByMd5, tagsByMd5, fileSearch])
 
   // Suggestions for the Enhanced from picker: this folder's pictures, minus
   // the piece being edited, matched on filename or title. Capped because the
@@ -556,6 +585,27 @@ export function TagAssignBrowser({
 
       {listing && listing.files.filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json')).length > 0 && (
         <>
+        {/* Matched against the title first — the tiles are labelled with it,
+            so searching for what you can see is the least surprising thing
+            the field can do. */}
+        <div className="flex items-center gap-2">
+          <input
+            value={fileSearch}
+            onChange={(e) => setFileSearch(e.target.value)}
+            placeholder="Find by title or filename…"
+            className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+          />
+          {fileSearch && (
+            <button
+              onClick={() => setFileSearch('')}
+              className="shrink-0 rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+              title="Clear"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
         <div className="flex items-center gap-2 text-xs">
           <span className="text-zinc-500">Sort</span>
           <select
@@ -566,14 +616,25 @@ export function TagAssignBrowser({
             <option value="date-desc">Created — newest</option>
             <option value="date-asc">Created — oldest</option>
             <option value="modified-desc">Recently changed</option>
+            <option value="title">Title</option>
             <option value="name">Name</option>
           </select>
-          <span className="text-zinc-400">
-            {sort === 'modified-desc'
-              ? 'when the file last changed, or arrived if never changed'
-              : 'taken, then created, then when the file reached Jottacloud'}
-          </span>
+          {/* Only where the order needs explaining — Title and Name say what
+              they do, and a caption under them was just noise. */}
+          {(sort === 'modified-desc' || sort === 'date-desc' || sort === 'date-asc') && (
+            <span className="text-zinc-400">
+              {sort === 'modified-desc'
+                ? 'when the file last changed, or arrived if never changed'
+                : 'taken, then created, then when the file reached Jottacloud'}
+            </span>
+          )}
         </div>
+        {visibleFiles.length === 0 && (
+          <p className="text-sm text-zinc-500">
+            Nothing in this folder matches “{fileSearch}”. Only pictures here are searched — titles
+            are matched too, where a piece has one.
+          </p>
+        )}
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {visibleFiles.slice(0, visibleCount).map((f) => {
               const tagCount = (f.md5 && tagCountByMd5.get(f.md5)) || 0
