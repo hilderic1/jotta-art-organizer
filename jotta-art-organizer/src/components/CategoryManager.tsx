@@ -2,6 +2,31 @@
 
 import { useState } from 'react'
 import { slugify, type Category } from '@/lib/metadata'
+import { getCategoryType, isHighCardinality } from '@/lib/categoryTypes'
+
+// Characteristics whose values the files decide, not you: dates and places
+// read out of the pictures, and any vocabulary that has grown past the point
+// of being one — a list you'd curate by hand doesn't reach fifty entries.
+function readFromFiles(category: Category): boolean {
+  return getCategoryType(category.id) !== 'regular' || isHighCardinality(category)
+}
+
+// What the collected values are for, which is the part worth saying: they
+// look like clutter until you know Find is built out of them.
+function keptFor(category: Category): string {
+  const type = getCategoryType(category.id)
+  if (type === 'date') return 'Find can offer a date range'
+  if (type === 'geo') return 'Find can offer places to filter by'
+  return 'Find can filter by them'
+}
+
+function valueNoun(category: Category): string {
+  const type = getCategoryType(category.id)
+  const plural = category.values.length !== 1
+  if (type === 'date') return plural ? 'dates' : 'date'
+  if (type === 'geo') return plural ? 'places' : 'place'
+  return plural ? 'values' : 'value'
+}
 
 export function CategoryManager({
   categories,
@@ -12,6 +37,18 @@ export function CategoryManager({
 }) {
   const [newCategoryName, setNewCategoryName] = useState('')
   const [newValueByCategory, setNewValueByCategory] = useState<Record<string, string>>({})
+  // Which collected lists are expanded. Thousands of dates are worth being
+  // able to look at once, and worth not rendering the rest of the time.
+  const [shownValues, setShownValues] = useState<Set<string>>(new Set())
+
+  function toggleShowValues(categoryId: string) {
+    setShownValues((prev) => {
+      const next = new Set(prev)
+      if (next.has(categoryId)) next.delete(categoryId)
+      else next.add(categoryId)
+      return next
+    })
+  }
 
   function addCategory() {
     const name = newCategoryName.trim()
@@ -83,6 +120,32 @@ export function CategoryManager({
 
           {category.freeText ? (
             <p className="text-xs text-zinc-400">Typed per file when assigning tags.</p>
+          ) : readFromFiles(category) ? (
+            // Collected rather than curated: one value per file, read out of
+            // the pictures themselves. Find builds its date range and its
+            // list of places from exactly these values, so they're kept — but
+            // offering an Add box for a date, or a delete that the next read
+            // would undo, only invited pointless work.
+            <p className="text-xs text-zinc-500">
+              {category.values.length.toLocaleString()} {valueNoun(category)}, read from your files —
+              kept so {keptFor(category)}.
+              {category.values.length > 0 && (
+                <>
+                  {' '}
+                  <button
+                    onClick={() => toggleShowValues(category.id)}
+                    className="text-indigo-600 hover:underline dark:text-indigo-400"
+                  >
+                    {shownValues.has(category.id) ? 'Hide them' : 'Show them'}
+                  </button>
+                </>
+              )}
+              {shownValues.has(category.id) && (
+                <span className="mt-2 block max-h-40 overflow-y-auto rounded border border-zinc-200 p-2 text-zinc-500 dark:border-zinc-800">
+                  {category.values.join(' · ')}
+                </span>
+              )}
+            </p>
           ) : (
           <>
           <div className="mb-2 flex flex-wrap gap-2">
