@@ -169,7 +169,10 @@ export function TagAssignBrowser({
   // leap to the top the instant you tag it and shift the buttons out from
   // under the cursor.
   const [initiallyTagged, setInitiallyTagged] = useState<Set<string>>(new Set())
-  const [sort, setSort] = useState<Sort>('date-desc')
+  // Titled work first by default. In a folder where nothing is titled yet this
+  // falls through to newest-first — the order it used to open in — so it costs
+  // nothing there and puts the named pieces up front everywhere else.
+  const [sort, setSort] = useState<Sort>('title')
   // Narrows the grid by title or filename. A folder runs to hundreds of
   // pictures, and scrolling for the one you meant is the slow way to find it.
   const [fileSearch, setFileSearch] = useState('')
