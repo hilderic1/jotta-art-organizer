@@ -10,6 +10,7 @@ import {
   type BatchTagManifest,
 } from '@/lib/batchTagImport'
 import type { MetadataStore } from '@/lib/metadata'
+import { SubfolderList } from './SubfolderList'
 
 function segments(path: string): string[] {
   return path.split('/').filter(Boolean)
@@ -258,19 +259,8 @@ export function BatchTagBrowser({
 
           {listingError && <p className="text-sm text-red-600 dark:text-red-400">{listingError}</p>}
 
-          {listing && listing.folders.length > 0 && (
-            <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 dark:divide-zinc-900 dark:border-zinc-800">
-              {listing.folders.map((f) => (
-                <li key={f.path}>
-                  <button
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:text-indigo-600 dark:hover:text-indigo-400"
-                    onClick={() => setPath([...crumbs, f.name].join('/'))}
-                  >
-                    📁 {f.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
+          {listing && (
+            <SubfolderList folders={listing.folders} onOpen={(name) => setPath([...crumbs, name].join('/'))} />
           )}
 
           <div className="flex flex-col gap-2 rounded-lg border border-zinc-200 px-3 py-3 dark:border-zinc-800">
