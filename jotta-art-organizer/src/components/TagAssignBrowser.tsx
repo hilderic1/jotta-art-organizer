@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { listFolder, jottaTime, type MountpointRef, type JottaFolderListing, type JottaEntry } from '@/lib/api'
 import { LocationPicker } from './LocationPicker'
 import { Thumbnail } from './Thumbnail'
@@ -544,6 +544,81 @@ export function TagAssignBrowser({
     return null
   }
 
+  // Held as a memoised element, not just memoised data. While the editor is
+  // open the grid is behind the overlay and cannot change until it closes —
+  // but React still reconciled all hundred tiles on every keystroke typed
+  // into the dialog, which is what made tagging feel slow on a phone. Reusing
+  // the element tree skips that entirely.
+  //
+  // openEditor is read through a ref because it's a new function on every
+  // render: listing it as a dependency would rebuild the grid constantly and
+  // defeat the point. The ref is updated after render, so a click — which can
+  // only happen after paint — always reaches the current one.
+  const openEditorRef = useRef(openEditor)
+  useEffect(() => {
+    openEditorRef.current = openEditor
+  })
+
+  const fileGrid = useMemo(() => {
+    if (!location) return null
+    return (
+      <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {visibleFiles.slice(0, visibleCount).map((f) => {
+          const tagCount = (f.md5 && tagCountByMd5.get(f.md5)) || 0
+          const hasMetadata = namesWithSidecar.has(f.name)
+          return (
+            <li key={f.path}>
+              <button
+                className="flex w-full flex-col items-center gap-1 rounded-lg border border-zinc-200 p-2 text-center hover:border-indigo-400 dark:border-zinc-800"
+                onClick={() => openEditorRef.current(f)}
+              >
+                <div className="relative">
+                  <Thumbnail loc={location} path={f.path} alt={f.name} px={128} className="h-20 w-20 rounded object-cover" />
+                  {hasMetadata && (
+                    <span
+                      title="Has Google Photos metadata"
+                      className="absolute -right-1 -top-1 rounded-full bg-white text-xs leading-none dark:bg-zinc-900"
+                    >
+                      📋
+                    </span>
+                  )}
+                </div>
+                {/* A titled piece is announced by its title; an untitled one
+                    falls back to the filename, in grey, so the two can't be
+                    mistaken for each other at a glance. The filename stays
+                    reachable on hover either way. */}
+                <span
+                  className={
+                    titleFor(f)
+                      ? 'w-full truncate text-xs font-medium text-zinc-900 dark:text-zinc-100'
+                      : 'w-full truncate text-xs text-zinc-500'
+                  }
+                  title={f.name}
+                >
+                  {labelFor(f)}
+                </span>
+                {tagCount > 0 && (
+                  <span className="text-xs text-indigo-600 dark:text-indigo-400">
+                    {tagCount} tag{tagCount === 1 ? '' : 's'}
+                  </span>
+                )}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- titleFor/labelFor are derived from tagsByMd5 and titleCategoryId
+  }, [
+    location,
+    visibleFiles,
+    visibleCount,
+    tagCountByMd5,
+    namesWithSidecar,
+    tagsByMd5,
+    titleCategoryId,
+  ])
+
   const crumbs = segments(path)
 
   if (!location) {
@@ -645,51 +720,7 @@ export function TagAssignBrowser({
             are matched too, where a piece has one.
           </p>
         )}
-        <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {visibleFiles.slice(0, visibleCount).map((f) => {
-              const tagCount = (f.md5 && tagCountByMd5.get(f.md5)) || 0
-              const hasMetadata = namesWithSidecar.has(f.name)
-              return (
-                <li key={f.path}>
-                  <button
-                    className="flex w-full flex-col items-center gap-1 rounded-lg border border-zinc-200 p-2 text-center hover:border-indigo-400 dark:border-zinc-800"
-                    onClick={() => openEditor(f)}
-                  >
-                    <div className="relative">
-                      <Thumbnail loc={location} path={f.path} alt={f.name} px={128} className="h-20 w-20 rounded object-cover" />
-                      {hasMetadata && (
-                        <span
-                          title="Has Google Photos metadata"
-                          className="absolute -right-1 -top-1 rounded-full bg-white text-xs leading-none dark:bg-zinc-900"
-                        >
-                          📋
-                        </span>
-                      )}
-                    </div>
-                    {/* A titled piece is announced by its title; an untitled
-                        one falls back to the filename, in grey, so the two
-                        can't be mistaken for each other at a glance. The
-                        filename stays reachable on hover either way. */}
-                    <span
-                      className={
-                        titleFor(f)
-                          ? 'w-full truncate text-xs font-medium text-zinc-900 dark:text-zinc-100'
-                          : 'w-full truncate text-xs text-zinc-500'
-                      }
-                      title={f.name}
-                    >
-                      {labelFor(f)}
-                    </span>
-                    {tagCount > 0 && (
-                      <span className="text-xs text-indigo-600 dark:text-indigo-400">
-                        {tagCount} tag{tagCount === 1 ? '' : 's'}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              )
-            })}
-        </ul>
+        {fileGrid}
         {visibleFiles.length > visibleCount && (
           <div className="flex items-center gap-3">
             <button
