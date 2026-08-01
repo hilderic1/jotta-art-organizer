@@ -7,7 +7,13 @@ import { Thumbnail } from './Thumbnail'
 import { SubfolderList } from './SubfolderList'
 import { ImageViewer } from './ImageViewer'
 import { FileProperties } from './FileProperties'
-import { KNOWN_CATEGORY_NAMES, type Category, type ArtworkTags } from '@/lib/metadata'
+import {
+  KNOWN_CATEGORY_NAMES,
+  findTitleCategoryId,
+  titleFromTags,
+  type Category,
+  type ArtworkTags,
+} from '@/lib/metadata'
 import {
   findMetadataSidecar,
   loadMetadataSidecar,
@@ -324,6 +330,8 @@ export function TagAssignBrowser({
     }
   }
 
+  const titleCategoryId = findTitleCategoryId(categories)
+
   // Merges in a synthetic entry for any pendingTags key not yet backed by a
   // real category — e.g. AI classification's Style/Subject/Palette/Framed/
   // Mood the very first time it's ever used, before any save has created
@@ -362,12 +370,17 @@ export function TagAssignBrowser({
         { id: 'derivedFrom', name: KNOWN_CATEGORY_NAMES.derivedFrom, values: [], freeText: true },
       ]
 
+  // Title leads unconditionally — it names the piece, and everything below it
+  // describes one that's already been named. Then what's already tagged, so
+  // what's set is visible without scrolling past what isn't.
   const orderedCategories = useMemo(
     () =>
-      [...withDerivedFrom].sort(
-        (a, b) => Number(!initiallyTagged.has(a.id)) - Number(!initiallyTagged.has(b.id))
-      ),
-    [withDerivedFrom, initiallyTagged]
+      [...withDerivedFrom].sort((a, b) => {
+        if (a.id === titleCategoryId) return -1
+        if (b.id === titleCategoryId) return 1
+        return Number(!initiallyTagged.has(a.id)) - Number(!initiallyTagged.has(b.id))
+      }),
+    [withDerivedFrom, initiallyTagged, titleCategoryId]
   )
 
   // The best date this file has, in order of how much it actually tells you:
@@ -402,14 +415,9 @@ export function TagAssignBrowser({
     return known ?? jottaTime(file.created)
   }
 
-  // Whichever category the user made for titles — matched by name rather than
-  // a hardcoded id, since it's one they created and could have called
-  // anything close to "Title".
-  const titleCategoryId = categories.find((c) => c.id === 'title' || c.name.trim().toLowerCase() === 'title')?.id
-
   function titleFor(file: JottaEntry): string | undefined {
-    if (!titleCategoryId || !file.md5) return undefined
-    return tagsByMd5.get(file.md5)?.[titleCategoryId]?.[0]?.trim() || undefined
+    if (!file.md5) return undefined
+    return titleFromTags(tagsByMd5.get(file.md5), titleCategoryId)
   }
 
   function labelFor(file: JottaEntry): string {
@@ -474,7 +482,7 @@ export function TagAssignBrowser({
         if (matches.length >= SEARCH_SCAN_LIMIT) break
         if (seen.has(a.md5) || a.path === editing?.path) continue
         const name = a.path.split('/').pop() ?? a.md5
-        const title = titleCategoryId ? a.tags?.[titleCategoryId]?.[0]?.trim() : undefined
+        const title = titleFromTags(a.tags, titleCategoryId)
         if (!name.toLowerCase().includes(query) && !title?.toLowerCase().includes(query)) continue
         seen.add(a.md5)
         matches.push({
@@ -513,7 +521,7 @@ export function TagAssignBrowser({
   // A hash is durable and unreadable; a name is readable and fragile.
   function labelForMd5(md5: string): string {
     const known = artworkByMd5.get(md5)
-    const title = titleCategoryId ? known?.tags?.[titleCategoryId]?.[0]?.trim() : undefined
+    const title = titleFromTags(known?.tags, titleCategoryId)
     if (title) return title
     const inFolder = listing?.files.find((f) => f.md5 === md5)
     return inFolder?.name ?? known?.path.split('/').pop() ?? md5
@@ -655,9 +663,18 @@ export function TagAssignBrowser({
                         </span>
                       )}
                     </div>
-                    {/* The filename stays reachable on hover — it's still how
-                        the file is identified everywhere else. */}
-                    <span className="w-full truncate text-xs" title={f.name}>
+                    {/* A titled piece is announced by its title; an untitled
+                        one falls back to the filename, in grey, so the two
+                        can't be mistaken for each other at a glance. The
+                        filename stays reachable on hover either way. */}
+                    <span
+                      className={
+                        titleFor(f)
+                          ? 'w-full truncate text-xs font-medium text-zinc-900 dark:text-zinc-100'
+                          : 'w-full truncate text-xs text-zinc-500'
+                      }
+                      title={f.name}
+                    >
                       {labelFor(f)}
                     </span>
                     {tagCount > 0 && (
@@ -700,7 +717,14 @@ export function TagAssignBrowser({
           >
             <div className="flex items-start justify-between gap-2 border-b border-zinc-200 p-3 dark:border-zinc-800">
               <div className="min-w-0">
-                <h3 className="truncate font-medium" title={editing.name}>
+                <h3
+                  className={
+                    titleFor(editing)
+                      ? 'truncate text-base font-semibold'
+                      : 'truncate font-medium text-zinc-500'
+                  }
+                  title={editing.name}
+                >
                   {labelFor(editing)}
                 </h3>
                 {labelFor(editing) !== editing.name && (
@@ -889,8 +913,23 @@ export function TagAssignBrowser({
                   // Label in a fixed column with its values beside it, rather
                   // than a heading above them: a stack of two dozen
                   // heading-then-pills blocks is what made this unreadable.
-                  <div key={category.id} className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-3">
-                    <p className="shrink-0 text-xs font-medium text-zinc-500 sm:w-20 sm:text-right">
+                  <div
+                    key={category.id}
+                    // Title gets air around it and a rule beneath: it heads the
+                    // dialog rather than being the first of two dozen equals.
+                    className={
+                      category.id === titleCategoryId
+                        ? 'flex flex-col gap-1 border-b border-zinc-200 pb-3 dark:border-zinc-800 sm:flex-row sm:items-baseline sm:gap-3'
+                        : 'flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-3'
+                    }
+                  >
+                    <p
+                      className={
+                        category.id === titleCategoryId
+                          ? 'shrink-0 text-xs font-semibold text-zinc-700 dark:text-zinc-200 sm:w-20 sm:text-right'
+                          : 'shrink-0 text-xs font-medium text-zinc-500 sm:w-20 sm:text-right'
+                      }
+                    >
                       {category.name}
                       {(CATEGORY_VALUE_LIMITS[category.id] ?? 0) > 1 && (
                         <span className="ml-1 font-normal text-zinc-400">
@@ -1010,7 +1049,9 @@ export function TagAssignBrowser({
                                   what the artist calls it, the filename is
                                   what she'll recognise from anywhere else. */}
                               <span className="min-w-0 flex-1">
-                                {f.title && <span className="block truncate text-xs">{f.title}</span>}
+                                {f.title && (
+                                  <span className="block truncate text-xs font-medium">{f.title}</span>
+                                )}
                                 <span
                                   className={
                                     f.title

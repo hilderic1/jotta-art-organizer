@@ -6,10 +6,11 @@ import { Thumbnail } from './Thumbnail'
 import { ImageViewer } from './ImageViewer'
 import { DateRangeFilter } from './DateRangeFilter'
 import { GeoFilter } from './GeoFilter'
-import type { Category, ArtworkTags } from '@/lib/metadata'
+import { findTitleCategoryId, titleFromTags, type Category, type ArtworkTags } from '@/lib/metadata'
 import { getCategoryType, isHighCardinality } from '@/lib/categoryTypes'
 
 export function TagFilterBrowser({ categories, artworks }: { categories: Category[]; artworks: ArtworkTags[] }) {
+  const titleCategoryId = findTitleCategoryId(categories)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [mode, setMode] = useState<'all' | 'any'>('all')
   // The whole record rather than just its location: opening a picture from a
@@ -216,7 +217,18 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
                     className="h-16 w-16 rounded object-cover cursor-pointer hover:opacity-80"
                   />
                 </button>
-                <p className="mt-1 truncate text-xs text-zinc-500">{a.path.split('/').pop()}</p>
+                {/* What she calls it, if she's called it anything — the
+                    filename is the fallback, not the headline. */}
+                <p
+                  className={
+                    titleFromTags(a.tags, titleCategoryId)
+                      ? 'mt-1 truncate text-xs font-medium text-zinc-900 dark:text-zinc-100'
+                      : 'mt-1 truncate text-xs text-zinc-500'
+                  }
+                  title={a.path.split('/').pop()}
+                >
+                  {titleFromTags(a.tags, titleCategoryId) ?? a.path.split('/').pop()}
+                </p>
               </li>
             ))}
           </ul>

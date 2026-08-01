@@ -28,6 +28,24 @@ export type MetadataStore = {
   artworks: ArtworkTags[]
 }
 
+// The one tag that names a piece rather than describing it — what the artist
+// calls the work — so it leads wherever a picture is labelled, and everything
+// else is a detail underneath it. Matched by name as well as id because it's
+// a category she made herself and could have called anything close to it.
+// Takes anything with an id and a name — the viewer is handed a narrower
+// shape than a full Category, and identifying the title needs no more.
+export function findTitleCategoryId(categories: { id: string; name: string }[]): string | undefined {
+  return categories.find((c) => c.id === 'title' || c.name.trim().toLowerCase() === 'title')?.id
+}
+
+export function titleFromTags(
+  tags: Record<string, string[]> | undefined,
+  titleCategoryId: string | undefined
+): string | undefined {
+  if (!tags || !titleCategoryId) return undefined
+  return tags[titleCategoryId]?.[0]?.trim() || undefined
+}
+
 // Display names for category ids that can get auto-created by imported tags
 // (e.g. from Google Photos metadata) before the user has ever defined them
 // manually in the Categories tab.

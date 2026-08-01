@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { viewUrl, type MountpointRef } from '@/lib/api'
 import { readArtworkMetadata, type ArtworkFileMetadata } from '@/lib/imageMetadata'
 import { FileProperties } from './FileProperties'
+import { findTitleCategoryId, titleFromTags } from '@/lib/metadata'
 
 export function ImageViewer({
   loc,
@@ -46,7 +47,13 @@ export function ImageViewer({
   const nameFor = (categoryId: string) =>
     categories?.find((c) => c.id === categoryId)?.name ?? categoryId
 
-  const entries = Object.entries(tags ?? {}).filter(([, values]) => values.length > 0)
+  // The title is the panel's heading, so listing it again among the pills
+  // would say the same thing twice — once large, once as an also-ran.
+  const titleCategoryId = findTitleCategoryId(categories ?? [])
+  const artworkTitle = titleFromTags(tags, titleCategoryId)
+  const entries = Object.entries(tags ?? {}).filter(
+    ([categoryId, values]) => values.length > 0 && !(artworkTitle && categoryId === titleCategoryId)
+  )
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -69,7 +76,11 @@ export function ImageViewer({
             show — off the top of the screen, or under the status bar — and a
             full-screen picture with no way out is the worst failure here. */}
         <div className="flex shrink-0 items-center justify-between gap-2">
-          <span className="truncate text-sm text-white/80">{title}</span>
+          <span className="min-w-0 truncate">
+            {artworkTitle && <span className="text-base font-medium text-white">{artworkTitle}</span>}
+            {artworkTitle && title && <span className="px-2 text-white/40">·</span>}
+            <span className={artworkTitle ? 'text-xs text-white/60' : 'text-sm text-white/80'}>{title}</span>
+          </span>
           <button
             onClick={onClose}
             className="shrink-0 rounded-full bg-white/15 px-4 py-2 text-lg leading-none text-white hover:bg-white/30"
@@ -99,7 +110,11 @@ export function ImageViewer({
 
         {(entries.length > 0 || fileProps) && (
           <div className="max-h-[25vh] w-full overflow-y-auto rounded-lg bg-white/95 p-3 text-sm dark:bg-zinc-900/95 sm:max-h-[90vh] sm:w-64 sm:shrink-0">
-            {title && <p className="mb-2 font-medium">{title}</p>}
+            {artworkTitle ? (
+              <p className="mb-2 text-base font-semibold">{artworkTitle}</p>
+            ) : (
+              title && <p className="mb-2 font-medium">{title}</p>
+            )}
             <div className="flex flex-col gap-2">
               {entries.map(([categoryId, values]) => (
                 <div key={categoryId}>
