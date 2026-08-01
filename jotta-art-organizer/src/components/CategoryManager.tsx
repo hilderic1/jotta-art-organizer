@@ -50,7 +50,7 @@ export function CategoryManager({
 
   return (
     <div className="flex flex-col gap-4">
-      {categories.length === 0 && <p className="text-sm text-zinc-500">No categories yet — add one below.</p>}
+      {categories.length === 0 && <p className="text-sm text-zinc-500">No characteristics yet — add one below.</p>}
 
       {categories.map((category) => (
         <div key={category.id} className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
@@ -127,7 +127,7 @@ export function CategoryManager({
       <div className="flex gap-2">
         <input
           className="rounded border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-          placeholder="New category name (e.g. Style)…"
+          placeholder="New characteristic (e.g. Style)…"
           value={newCategoryName}
           onChange={(e) => setNewCategoryName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && addCategory()}
@@ -136,7 +136,7 @@ export function CategoryManager({
           className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
           onClick={addCategory}
         >
-          + Add category
+          + Add characteristic
         </button>
       </div>
     </div>

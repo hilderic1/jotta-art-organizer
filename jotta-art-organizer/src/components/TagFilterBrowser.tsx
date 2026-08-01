@@ -135,7 +135,7 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
 
   // Matches came out in whatever order the tag store held them, which is by
   // content hash — no order at all, as far as the artist is concerned. Same
-  // rule as Assign tags: titled work first, alphabetically, then the rest
+  // rule as Describe: titled work first, alphabetically, then the rest
   // newest-first.
   const ordered = useMemo(() => {
     return [...matching].sort((a, b) => {
@@ -151,7 +151,7 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
   return (
     <div className="flex flex-col gap-4">
       {categories.length === 0 && (
-        <p className="text-sm text-zinc-500">No categories defined yet — add some in the Categories tab first.</p>
+        <p className="text-sm text-zinc-500">No characteristics defined yet — add some under Characteristics first.</p>
       )}
 
       <div className="flex flex-col gap-3">

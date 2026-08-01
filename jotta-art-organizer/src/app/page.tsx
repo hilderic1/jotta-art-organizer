@@ -5,5 +5,5 @@ import { redirect } from 'next/navigation'
 // that has to be clicked through every time. Account details and the archive
 // browser moved to /setup, which is where connection management already was.
 export default function Home() {
-  redirect('/tags')
+  redirect('/catalogue')
 }

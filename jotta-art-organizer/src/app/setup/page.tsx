@@ -22,7 +22,7 @@ export default function SetupPage() {
     setError(null)
     try {
       await setup(token)
-      router.push('/tags')
+      router.push('/catalogue')
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Setup failed.')
