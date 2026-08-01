@@ -48,14 +48,23 @@ function sortFiles(
   files: JottaEntry[],
   sort: Sort,
   dateOf: (f: JottaEntry) => number,
-  labelOf: (f: JottaEntry) => string
+  titleOf: (f: JottaEntry) => string | undefined
 ): JottaEntry[] {
   const sorted = [...files]
   switch (sort) {
-    // What the tiles actually show — an untitled piece falls back to its
-    // filename, so the order matches the labels rather than the storage.
+    // Titled work first, alphabetically. What's left has no title to sort by
+    // — mixing it in under its filename would bury the named pieces among
+    // camera serial numbers — so it follows in recency order, which is where
+    // titling is likeliest to be wanted next.
     case 'title':
-      return sorted.sort((a, b) => labelOf(a).localeCompare(labelOf(b), undefined, { numeric: true }))
+      return sorted.sort((a, b) => {
+        const left = titleOf(a)
+        const right = titleOf(b)
+        if (left && right) return left.localeCompare(right, undefined, { numeric: true })
+        if (left) return -1
+        if (right) return 1
+        return changedAt(b) - changedAt(a)
+      })
     case 'date-desc':
       return sorted.sort((a, b) => dateOf(b) - dateOf(a))
     case 'date-asc':
@@ -427,7 +436,7 @@ export function TagAssignBrowser({
         ),
       sort,
       dateOf,
-      labelFor
+      titleFor
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dateOf and titleFor are derived from dateByMd5/tagsByMd5
   }, [listing, sort, dateByMd5, tagsByMd5, fileSearch])
