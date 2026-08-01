@@ -77,6 +77,18 @@ const LARGE_CATEGORY_THRESHOLD = 10
 // itself was the cost on a phone.
 const FILES_PER_PAGE = 100
 
+// Rows in the Enhanced from picker. Each carries a thumbnail, so this is a
+// limit on images fetched to fill a list, not on what can be found — what's
+// past it is counted and reported.
+const PICKER_ROWS = 30
+// How far the whole-library search runs before it stops counting. Past this
+// many matches the query is too vague to be worth refining a number for.
+const SEARCH_SCAN_LIMIT = 300
+
+// A picture offered as the original: from this folder, or from anywhere else
+// the tag store knows about — in which case `folder` says where.
+type DerivedRow = { md5: string; path: string; name: string; title?: string; folder?: string }
+
 // Read from the file rather than decided by you. Editable, but rarely edited
 // — so they're tucked behind one collapsed heading instead of taking two
 // thirds of the dialog before the first thing you actually choose.
@@ -395,23 +407,52 @@ export function TagAssignBrowser({
   // the piece being edited, matched on filename or title. Capped because the
   // list carries a thumbnail per row — enough to scroll through, not enough
   // to fetch a folder's worth of images to fill a dropdown.
-  const derivedMatches = useMemo(() => {
+  const derivedRows = useMemo(() => {
     const query = (derivedSearch ?? '').trim().toLowerCase()
-    return visibleFiles
-      .filter((f) => f.path !== editing?.path && f.md5)
-      .filter(
-        (f) =>
-          !query ||
-          f.name.toLowerCase().includes(query) ||
-          (titleFor(f)?.toLowerCase().includes(query) ?? false)
-      )
-      // Newest first regardless of how the grid is sorted: an original is
-      // almost always something worked on recently, so it should be near the
-      // top before a single character is typed.
-      .sort((a, b) => changedAt(b) - changedAt(a))
-      .slice(0, 30)
+    const matches: DerivedRow[] = []
+    const seen = new Set<string>()
+
+    // Newest first regardless of how the grid is sorted: an original is
+    // almost always something worked on recently, so it should be near the
+    // top before a single character is typed.
+    for (const f of [...visibleFiles].sort((a, b) => changedAt(b) - changedAt(a))) {
+      if (!f.md5 || f.path === editing?.path || seen.has(f.md5)) continue
+      const title = titleFor(f)
+      if (query && !f.name.toLowerCase().includes(query) && !title?.toLowerCase().includes(query)) continue
+      seen.add(f.md5)
+      matches.push({ md5: f.md5, path: f.path, name: f.name, title })
+    }
+
+    // The enhanced copy often lives apart from the work it came from — a
+    // separate folder for AI versions is the obvious way to keep them — so a
+    // picker limited to this folder would simply never find the original.
+    // Only once there's something to search on: every tagged picture in the
+    // account is too much to list, but it's exactly the right thing to search.
+    // From two characters: one letter matches most of the library, and this
+    // scan runs over every tagged picture on each keystroke.
+    if (query.length >= 2) {
+      for (const a of artworks) {
+        if (matches.length >= SEARCH_SCAN_LIMIT) break
+        if (seen.has(a.md5) || a.path === editing?.path) continue
+        const name = a.path.split('/').pop() ?? a.md5
+        const title = titleCategoryId ? a.tags?.[titleCategoryId]?.[0]?.trim() : undefined
+        if (!name.toLowerCase().includes(query) && !title?.toLowerCase().includes(query)) continue
+        seen.add(a.md5)
+        matches.push({
+          md5: a.md5,
+          path: a.path,
+          name,
+          title,
+          folder: a.path.split('/').filter(Boolean).slice(-2, -1)[0],
+        })
+      }
+    }
+
+    // Capped because each row fetches a thumbnail. The count of what's left
+    // is kept so the list can say so instead of silently ending.
+    return { matches: matches.slice(0, PICKER_ROWS), hidden: Math.max(0, matches.length - PICKER_ROWS) }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- titleFor is derived from tagsByMd5
-  }, [visibleFiles, derivedSearch, editing, tagsByMd5])
+  }, [visibleFiles, derivedSearch, editing, tagsByMd5, artworks, titleCategoryId])
 
   const tagCountByMd5 = useMemo(() => {
     const counts = new Map<string, number>()
@@ -803,7 +844,7 @@ export function TagAssignBrowser({
                       // button: the text *is* the value, and there's nothing
                       // to accumulate.
                       <>
-                      <div className="relative flex items-center gap-2">
+                      <div className="flex items-center gap-2">
                       <input
                         value={
                           category.id === 'derivedFrom'
@@ -873,21 +914,27 @@ export function TagAssignBrowser({
                           Hand-rolled rather than a datalist because that can
                           only render text. */}
                       {category.id === 'derivedFrom' && derivedSearch !== null && location && (
-                        <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-56 overflow-y-auto rounded border border-zinc-300 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-                          {derivedMatches.length === 0 && (
+                        // In normal flow, not floating. Enhanced from sorts to
+                        // the bottom of an untagged file's categories, so an
+                        // absolutely positioned list opened past the end of the
+                        // modal's scrolling body — under the phone keyboard,
+                        // where it read as no dropdown at all. In flow the
+                        // browser can simply scroll to it.
+                        <div className="mt-1 max-h-56 overflow-y-auto rounded border border-zinc-300 dark:border-zinc-700">
+                          {derivedRows.matches.length === 0 && (
                             <p className="px-2 py-2 text-xs text-zinc-400">
-                              Nothing here by that name — the words are kept as typed.
+                              Nothing by that name — the words are kept as typed.
                             </p>
                           )}
-                          {derivedMatches.map((f) => (
+                          {derivedRows.matches.map((f) => (
                             <button
-                              key={f.path}
+                              key={f.md5}
                               type="button"
                               // Keeps focus in the field so the list survives
                               // long enough for this click to happen.
                               onMouseDown={(e) => e.preventDefault()}
                               onClick={() => {
-                                setPendingTags((prev) => ({ ...prev, derivedFrom: [f.md5!] }))
+                                setPendingTags((prev) => ({ ...prev, derivedFrom: [f.md5] }))
                                 setDerivedSearch(null)
                               }}
                               className="flex w-full items-center gap-2 px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
@@ -903,21 +950,35 @@ export function TagAssignBrowser({
                                   what the artist calls it, the filename is
                                   what she'll recognise from anywhere else. */}
                               <span className="min-w-0 flex-1">
-                                {titleFor(f) && (
-                                  <span className="block truncate text-xs">{titleFor(f)}</span>
-                                )}
+                                {f.title && <span className="block truncate text-xs">{f.title}</span>}
                                 <span
                                   className={
-                                    titleFor(f)
+                                    f.title
                                       ? 'block truncate text-[11px] text-zinc-500'
                                       : 'block truncate text-xs'
                                   }
                                 >
                                   {f.name}
                                 </span>
+                                {/* Only for pictures outside this folder —
+                                    otherwise it's the same word on every row. */}
+                                {f.folder && (
+                                  <span className="block truncate text-[11px] text-zinc-400">
+                                    in {f.folder}
+                                  </span>
+                                )}
                               </span>
                             </button>
                           ))}
+                          {/* A folder of hundreds can't all be shown, and the
+                              one you want may not be in the first screenful —
+                              so say what's hidden rather than let it look like
+                              the picture isn't there. */}
+                          {derivedRows.hidden > 0 && (
+                            <p className="border-t border-zinc-200 px-2 py-1 text-[11px] text-zinc-400 dark:border-zinc-800">
+                              {derivedRows.hidden} more — type a name or title to narrow it down.
+                            </p>
+                          )}
                         </div>
                       )}
                       </>
