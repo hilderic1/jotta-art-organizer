@@ -155,8 +155,9 @@ export default function TagsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Set up tags</h1>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            Pick where to store the tag database — a small JSON file this app manages inside your Jottacloud account.
-            This only needs to be done once.
+            Pick where to keep what you write about your work. It lives in your own Jottacloud
+            account, in a folder this app looks after — your artwork itself is never changed. You
+            only choose this once.
           </p>
         </div>
         <LocationPicker onSelect={handleChooseLocation} />
@@ -177,8 +178,10 @@ export default function TagsPage() {
     <div>
       <h1 className="text-2xl font-semibold">Tags</h1>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Describe your work by what it <em>is</em> — style, mood, colour, what&rsquo;s in it — rather than by which
-        folder it happened to land in. Then find pieces by any combination of those.
+        Give a piece a title, a style and a subject, note the figures you can see in it, and link an
+        enhanced version back to the original it came from. Dates, places and camera details are read
+        out of the files themselves — so what you add here is what a file can&rsquo;t say for itself.
+        Then find any piece by any of it.
       </p>
     </div>
   )
@@ -188,7 +191,10 @@ export default function TagsPage() {
     return (
       <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
         {header}
-        <p className="text-sm text-zinc-500">Choose the folder you want to work on.</p>
+        <p className="text-sm text-zinc-500">
+          Choose the folder holding the work you want to tag. Only what that folder needs is loaded,
+          and you can switch to another one at any time.
+        </p>
         <LocationPicker onSelect={pickFolder} />
       </div>
     )
