@@ -22,7 +22,6 @@ export default function TagsPage() {
   const [mode, setMode] = useState<Mode>('assign')
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(false)
   const [selectedBrowseLocation, setSelectedBrowseLocation] = useState<(MountpointRef & { path?: string }) | null>(null)
-  const [loadStats, setLoadStats] = useState<{ loaded: number; total: number } | null>(null)
 
   useEffect(() => {
     getSessionStatus().then(setSession)
@@ -37,7 +36,6 @@ export default function TagsPage() {
       .then((result) => {
         if (!ignore) {
           setStore(result.store)
-          setLoadStats({ loaded: result.shardsLoaded, total: result.shardsTotal })
           setIsLoadingMetadata(false)
         }
       })
@@ -56,14 +54,12 @@ export default function TagsPage() {
   // (the loading state) is what renders next rather than stale tags.
   function pickFolder(loc: MountpointRef & { path?: string }) {
     setStore(null)
-    setLoadStats(null)
     setLoadError(null)
     setSelectedBrowseLocation(loc)
   }
 
   function clearFolder() {
     setStore(null)
-    setLoadStats(null)
     setLoadError(null)
     setSelectedBrowseLocation(null)
   }
@@ -246,10 +242,9 @@ export default function TagsPage() {
       <div className="flex items-center justify-between gap-3 text-sm">
         <span className="truncate text-zinc-600 dark:text-zinc-400">
           🗂 {folderLabel}{' '}
-          <span className="text-xs text-zinc-400">
-            ({store.artworks.length} tagged
-            {loadStats && loadStats.total > 0 && `; read ${loadStats.loaded} of ${loadStats.total} shards`})
-          </span>
+          {/* How the tags are stored is the app's business, not the
+              artist's — the shard counter said nothing she could act on. */}
+          <span className="text-xs text-zinc-400">({store.artworks.length} tagged)</span>
         </span>
         <button onClick={clearFolder} className="shrink-0 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
           Change folder

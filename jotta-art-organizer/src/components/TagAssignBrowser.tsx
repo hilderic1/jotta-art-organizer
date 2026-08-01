@@ -166,6 +166,7 @@ export function TagAssignBrowser({
   // Narrows the grid by title or filename. A folder runs to hundreds of
   // pictures, and scrolling for the one you meant is the slow way to find it.
   const [fileSearch, setFileSearch] = useState('')
+  const [showFolders, setShowFolders] = useState(false)
   // A path rather than a flag: the viewer also opens the linked original,
   // which is a different file from the one being edited.
   const [viewingPath, setViewingPath] = useState<string | null>(null)
@@ -197,9 +198,11 @@ export function TagAssignBrowser({
     setVisibleCount(FILES_PER_PAGE)
   }, [listing, sort, fileSearch])
 
-  // A search typed in one folder shouldn't silently hide most of the next.
+  // A search typed in one folder shouldn't silently hide most of the next,
+  // and having opened the subfolder list to move somewhere, you've arrived.
   useEffect(() => {
     setFileSearch('')
+    setShowFolders(false)
   }, [location, path])
 
   function openEditor(entry: JottaEntry) {
@@ -577,19 +580,34 @@ export function TagAssignBrowser({
       {listingError && <p className="text-sm text-red-600 dark:text-red-400">{listingError}</p>}
       {!listing && !listingError && <p className="text-sm text-zinc-500">Loading…</p>}
 
+      {/* Folded away by default. You came here having already chosen the
+          folder you meant to work on, so its subfolders are a detour — but
+          one still worth being able to take, which is why they're a click
+          away rather than gone. */}
       {listing && listing.folders.length > 0 && (
-        <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 dark:divide-zinc-900 dark:border-zinc-800">
-          {listing.folders.map((f) => (
-            <li key={f.path}>
-              <button
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:text-indigo-600 dark:hover:text-indigo-400"
-                onClick={() => setPath([...crumbs, f.name].join('/'))}
-              >
-                📁 {f.name}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <div>
+          <button
+            onClick={() => setShowFolders((v) => !v)}
+            className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          >
+            {showFolders ? '▾' : '▸'} {listing.folders.length} subfolder
+            {listing.folders.length === 1 ? '' : 's'}
+          </button>
+          {showFolders && (
+            <ul className="mt-1 divide-y divide-zinc-100 rounded-lg border border-zinc-200 dark:divide-zinc-900 dark:border-zinc-800">
+              {listing.folders.map((f) => (
+                <li key={f.path}>
+                  <button
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:text-indigo-600 dark:hover:text-indigo-400"
+                    onClick={() => setPath([...crumbs, f.name].join('/'))}
+                  >
+                    📁 {f.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {listing && listing.files.filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json')).length > 0 && (
