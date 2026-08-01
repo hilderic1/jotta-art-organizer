@@ -8,6 +8,32 @@ import { DateRangeFilter } from './DateRangeFilter'
 import { GeoFilter } from './GeoFilter'
 import { findTitleCategoryId, titleFromTags, type Category, type ArtworkTags } from '@/lib/metadata'
 import { getCategoryType, isHighCardinality } from '@/lib/categoryTypes'
+import { PHOTO_TAKEN_TIME_CATEGORY_ID } from '@/lib/googlePhotosMetadata'
+import {
+  DATE_ACQUIRED_CATEGORY_ID,
+  EDITOR_CREATED_CATEGORY_ID,
+  JOTTA_CREATED_CATEGORY_ID,
+} from '@/lib/imageMetadata'
+
+// The best date a record carries, in order of how much it says: when the
+// picture was taken, then when the editor made it, then when it was digitised
+// or reached Jottacloud. Untagged dates leave 0, which sorts last.
+const DATE_CATEGORY_IDS = [
+  PHOTO_TAKEN_TIME_CATEGORY_ID,
+  EDITOR_CREATED_CATEGORY_ID,
+  DATE_ACQUIRED_CATEGORY_ID,
+  JOTTA_CREATED_CATEGORY_ID,
+]
+
+function bestDate(artwork: ArtworkTags): number {
+  for (const id of DATE_CATEGORY_IDS) {
+    const stored = artwork.tags[id]?.[0]
+    if (!stored) continue
+    const parsed = Date.parse(stored)
+    if (!Number.isNaN(parsed)) return parsed
+  }
+  return 0
+}
 
 export function TagFilterBrowser({ categories, artworks }: { categories: Category[]; artworks: ArtworkTags[] }) {
   const titleCategoryId = findTitleCategoryId(categories)
@@ -95,6 +121,21 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
       return mode === 'all' ? selectedArr.every((k) => artworkKeys.has(k)) : selectedArr.some((k) => artworkKeys.has(k))
     })
   }, [artworks, selected, mode, dateFilters, geoFilters])
+
+  // Matches came out in whatever order the tag store held them, which is by
+  // content hash — no order at all, as far as the artist is concerned. Same
+  // rule as Assign tags: titled work first, alphabetically, then the rest
+  // newest-first.
+  const ordered = useMemo(() => {
+    return [...matching].sort((a, b) => {
+      const left = titleFromTags(a.tags, titleCategoryId)
+      const right = titleFromTags(b.tags, titleCategoryId)
+      if (left && right) return left.localeCompare(right, undefined, { numeric: true })
+      if (left) return -1
+      if (right) return 1
+      return bestDate(b) - bestDate(a)
+    })
+  }, [matching, titleCategoryId])
 
   return (
     <div className="flex flex-col gap-4">
@@ -206,7 +247,7 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
             {matching.length} match{matching.length === 1 ? '' : 'es'}
           </p>
           <ul className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-6">
-            {matching.map((a) => (
+            {ordered.map((a) => (
               <li key={a.md5}>
                 <button onClick={() => setViewingImage(a)}>
                   <Thumbnail
