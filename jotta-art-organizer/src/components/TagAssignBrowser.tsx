@@ -136,6 +136,10 @@ export function TagAssignBrowser({
   // A path rather than a flag: the viewer also opens the linked original,
   // which is a different file from the one being edited.
   const [viewingPath, setViewingPath] = useState<string | null>(null)
+  // What's typed into the Enhanced from field while picking. Null means not
+  // picking — the field then shows the linked original's title rather than
+  // the hash actually stored.
+  const [derivedSearch, setDerivedSearch] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(FILES_PER_PAGE)
 
   useEffect(() => {
@@ -168,6 +172,7 @@ export function TagAssignBrowser({
       new Set(Object.keys(existingTags).filter((id) => (existingTags[id]?.length ?? 0) > 0))
     )
     setNewValueDrafts({})
+    setDerivedSearch(null)
     setEditing(entry)
     setMetadataPreview(null)
     setFilePropsPreview(null)
@@ -381,6 +386,24 @@ export function TagAssignBrowser({
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dateOf is derived from dateByMd5
   }, [listing, sort, dateByMd5])
+
+  // Suggestions for the Enhanced from picker: this folder's pictures, minus
+  // the piece being edited, matched on filename or title. Capped because the
+  // list carries a thumbnail per row — enough to scroll through, not enough
+  // to fetch a folder's worth of images to fill a dropdown.
+  const derivedMatches = useMemo(() => {
+    const query = (derivedSearch ?? '').trim().toLowerCase()
+    return visibleFiles
+      .filter((f) => f.path !== editing?.path && f.md5)
+      .filter(
+        (f) =>
+          !query ||
+          f.name.toLowerCase().includes(query) ||
+          labelFor(f).toLowerCase().includes(query)
+      )
+      .slice(0, 30)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- labelFor is derived from tagsByMd5
+  }, [visibleFiles, derivedSearch, editing, tagsByMd5])
 
   const tagCountByMd5 = useMemo(() => {
     const counts = new Map<string, number>()
@@ -772,25 +795,34 @@ export function TagAssignBrowser({
                       // button: the text *is* the value, and there's nothing
                       // to accumulate.
                       <>
-                      <div className="flex items-center gap-2">
+                      <div className="relative flex items-center gap-2">
                       <input
                         value={
-                          category.id === 'derivedFrom' && activeValues[0]
-                            ? labelForMd5(activeValues[0])
+                          category.id === 'derivedFrom'
+                            ? derivedSearch ?? (activeValues[0] ? labelForMd5(activeValues[0]) : '')
                             : activeValues[0] ?? ''
                         }
-                        list={category.id === 'derivedFrom' ? 'derived-from-files' : undefined}
+                        onFocus={() => {
+                          if (category.id === 'derivedFrom') setDerivedSearch('')
+                        }}
+                        // A click on a suggestion blurs the input first, which
+                        // would close the list before the click landed. The
+                        // rows suppress that blur, so this only fires when
+                        // focus really leaves the field.
+                        onBlur={() => {
+                          if (category.id === 'derivedFrom') setDerivedSearch(null)
+                        }}
                         onChange={(e) => {
                           const text = e.target.value.trim()
-                          // Picked from the list: store what the file is, not
-                          // what it's called. Typed freehand: store the words,
-                          // since there's nothing to resolve them to.
-                          const picked =
-                            category.id === 'derivedFrom'
-                              ? visibleFiles.find((f) => f.name === text || labelFor(f) === text)
-                              : undefined
-                          const value = picked?.md5 ?? text
-                          setPendingTags((prev) => ({ ...prev, [category.id]: value ? [value] : [] }))
+                          if (category.id === 'derivedFrom') {
+                            // What's typed filters the pictures; it's also
+                            // stored verbatim, so an original that isn't in
+                            // this folder can still be named in words.
+                            setDerivedSearch(e.target.value)
+                            setPendingTags((prev) => ({ ...prev, [category.id]: text ? [text] : [] }))
+                            return
+                          }
+                          setPendingTags((prev) => ({ ...prev, [category.id]: text ? [text] : [] }))
                         }}
                         placeholder={category.id === 'derivedFrom' ? 'Pick the original…' : `${category.name}…`}
                         className="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
@@ -826,17 +858,43 @@ export function TagAssignBrowser({
                       </div>
                       {/* The folder's own pictures as suggestions, so linking
                           an original is a choice rather than remembering a
-                          filename like 47C020DA-E0C5-468B-9266-529B7E5FABC9. */}
-                      {category.id === 'derivedFrom' && (
-                        <datalist id="derived-from-files">
-                          {visibleFiles
-                            .filter((f) => f.path !== editing.path)
-                            .map((f) => (
-                              <option key={f.path} value={f.name}>
-                                {labelFor(f)}
-                              </option>
-                            ))}
-                        </datalist>
+                          filename like 47C020DA-E0C5-468B-9266-529B7E5FABC9.
+                          A picture, not a name: for abstract work the filename
+                          says nothing about which piece it is, which is the
+                          whole reason a list of names was the wrong control.
+                          Hand-rolled rather than a datalist because that can
+                          only render text. */}
+                      {category.id === 'derivedFrom' && derivedSearch !== null && location && (
+                        <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-56 overflow-y-auto rounded border border-zinc-300 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+                          {derivedMatches.length === 0 && (
+                            <p className="px-2 py-2 text-xs text-zinc-400">
+                              Nothing here by that name — the words are kept as typed.
+                            </p>
+                          )}
+                          {derivedMatches.map((f) => (
+                            <button
+                              key={f.path}
+                              type="button"
+                              // Keeps focus in the field so the list survives
+                              // long enough for this click to happen.
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setPendingTags((prev) => ({ ...prev, derivedFrom: [f.md5!] }))
+                                setDerivedSearch(null)
+                              }}
+                              className="flex w-full items-center gap-2 px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            >
+                              <Thumbnail
+                                loc={location}
+                                path={f.path}
+                                alt={f.name}
+                                px={64}
+                                className="h-8 w-8 shrink-0 rounded object-cover"
+                              />
+                              <span className="truncate text-xs">{labelFor(f)}</span>
+                            </button>
+                          ))}
+                        </div>
                       )}
                       </>
                     ) : isLarge ? (
