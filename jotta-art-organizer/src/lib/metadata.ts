@@ -98,9 +98,20 @@ export function ensureCategoriesForTags(categories: Category[], tags: Record<str
       // happened to be assigned so far.
       next = [
         ...next,
-        { id: categoryId, name: KNOWN_CATEGORY_NAMES[categoryId] ?? categoryId, values: [...(KNOWN_CLASSIFICATION_VALUES[categoryId] ?? [])] },
+        {
+          id: categoryId,
+          name: KNOWN_CATEGORY_NAMES[categoryId] ?? categoryId,
+          values: [...(KNOWN_CLASSIFICATION_VALUES[categoryId] ?? [])],
+          ...(FREE_TEXT_CATEGORY_IDS.has(categoryId) ? { freeText: true } : {}),
+        },
       ]
       idx = next.length - 1
+    }
+
+    // Created before this category was known to be free text — repair the
+    // flag and drop whatever its value list collected in the meantime.
+    if (FREE_TEXT_CATEGORY_IDS.has(categoryId) && !next[idx].freeText) {
+      next = next.map((c, i) => (i === idx ? { ...c, freeText: true, values: [] } : c))
     }
     // Free-text categories keep an empty vocabulary on purpose: collecting
     // one-off titles or notes would fill the pickers and Browse filters with
@@ -187,6 +198,14 @@ const RETIRED_CATEGORY_IDS = new Set([
   'suggestedStyle',
 ])
 
+// Categories whose values are per-file by nature: Enhanced from stores the
+// content hash of one specific original, not a word from a shared vocabulary.
+// Left as an ordinary category, every hash ever linked was collected into its
+// value list and offered as a filter pill in Browse by tag. Forced free text
+// on read as well as on write, so lists already polluted come back clean
+// without waiting for the next save.
+const FREE_TEXT_CATEGORY_IDS = new Set(['derivedFrom'])
+
 // Dates worth having, and dates worth having only in the absence of one.
 // When a piece was digitised, when Google received it, and when it reached
 // Jottacloud say little about when it was made — a bulk upload gives
@@ -226,7 +245,9 @@ function cleanCategories(categories: Category[]): Category[] {
     // Switching a category to free text empties its vocabulary — the values
     // collected while it was a picker are one-off entries by then, and the
     // per-file tags themselves are untouched.
-    if (category.freeText) return { ...category, values: [] }
+    if (category.freeText || FREE_TEXT_CATEGORY_IDS.has(category.id)) {
+      return { ...category, freeText: true, values: [] }
+    }
     return {
       ...category,
       values: canonical

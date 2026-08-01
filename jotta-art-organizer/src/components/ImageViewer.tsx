@@ -13,6 +13,7 @@ export function ImageViewer({
   title,
   tags,
   categories,
+  labelForValue,
 }: {
   loc: MountpointRef
   path: string
@@ -23,6 +24,10 @@ export function ImageViewer({
   tags?: Record<string, string[]>
   /** Supplies display names; ids are shown raw if a category is missing. */
   categories?: { id: string; name: string }[]
+  /** Turns a stored value into what should be shown for it. Enhanced from
+   *  holds the original's content hash — durable, and meaningless to read —
+   *  so the caller, which has the whole library to look in, resolves it. */
+  labelForValue?: (categoryId: string, value: string) => string
 }) {
   const [loading, setLoading] = useState(true)
   const [fileProps, setFileProps] = useState<ArtworkFileMetadata | null>(null)
@@ -125,7 +130,7 @@ export function ImageViewer({
                         key={value}
                         className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
                       >
-                        {value}
+                        {labelForValue ? labelForValue(categoryId, value) : value}
                       </span>
                     ))}
                   </div>

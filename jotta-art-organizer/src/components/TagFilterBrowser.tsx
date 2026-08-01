@@ -122,6 +122,17 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
     })
   }, [artworks, selected, mode, dateFilters, geoFilters])
 
+  // Every piece by content hash, so a link stored as one can be read back as
+  // what it points at. Built over the whole library rather than the matches,
+  // since the original of a match is often not itself a match.
+  const labelByMd5 = useMemo(() => {
+    const labels = new Map<string, string>()
+    for (const a of artworks) {
+      labels.set(a.md5, titleFromTags(a.tags, titleCategoryId) ?? a.path.split('/').pop() ?? a.md5)
+    }
+    return labels
+  }, [artworks, titleCategoryId])
+
   // Matches came out in whatever order the tag store held them, which is by
   // content hash — no order at all, as far as the artist is concerned. Same
   // rule as Assign tags: titled work first, alphabetically, then the rest
@@ -282,6 +293,12 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
           title={viewingImage.path.split('/').pop()}
           tags={viewingImage.tags}
           categories={categories}
+          // Only Enhanced from stores a reference rather than a word. An
+          // original that's since been deleted leaves nothing to resolve, so
+          // the hash itself is the last resort.
+          labelForValue={(categoryId, value) =>
+            categoryId === 'derivedFrom' ? labelByMd5.get(value) ?? value : value
+          }
           onClose={() => setViewingImage(null)}
         />
       )}
