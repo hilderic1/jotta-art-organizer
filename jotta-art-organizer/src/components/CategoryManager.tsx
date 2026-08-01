@@ -101,19 +101,30 @@ export function CategoryManager({
             </button>
           </div>
 
-          <label className="mb-2 flex w-fit items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+          {/* Offered only where it's a real choice. On a collected
+              characteristic, ticking it would empty the values — and those
+              values are what Find's date range and place list are built from,
+              so the filter would quietly stop working. */}
+          <label
+            className={
+              readFromFiles(category)
+                ? 'mb-2 flex w-fit cursor-not-allowed items-start gap-2 text-xs text-zinc-400'
+                : 'mb-2 flex w-fit items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400'
+            }
+          >
             <input
               type="checkbox"
               checked={category.freeText === true}
+              disabled={readFromFiles(category)}
               onChange={(e) => toggleFreeText(category.id, e.target.checked)}
               className="mt-0.5"
             />
             <span>
               Free text
               <span className="block text-zinc-400">
-                For per-file wording like a title or a note. You type it on each file instead of picking from a
-                list, and it isn&rsquo;t collected into a vocabulary — every entry would be unique, and Browse
-                would fill with filters matching one file each.
+                {readFromFiles(category)
+                  ? 'Not available here: this characteristic is read from your files, and Find’s filters are built from the values it collects.'
+                  : 'For per-file wording like a title or a note. You type it on each file instead of picking from a list, and it isn’t collected into a vocabulary — every entry would be unique, and Find would fill with filters matching one file each.'}
               </span>
             </span>
           </label>
