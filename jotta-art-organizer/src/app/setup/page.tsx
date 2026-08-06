@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { setup, getSessionStatus, disconnectSession, type SessionStatus } from '@/lib/api'
 import { FolderBrowser } from '@/components/FolderBrowser'
+import { IntakeSettings } from '@/components/IntakeSettings'
 
 export default function SetupPage() {
   const router = useRouter()
@@ -52,6 +53,10 @@ export default function SetupPage() {
             Disconnect
           </button>
         </div>
+
+        {/* Only once there's somewhere to keep the settings — the catalogue
+            location is chosen on first use of the Catalogue. */}
+        {status.metadataLocation && <IntakeSettings metadataLoc={status.metadataLocation} />}
 
         <section>
           <h2 className="mb-2 text-sm font-medium text-zinc-600 dark:text-zinc-400">Browse your Archive</h2>

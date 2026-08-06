@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { getSessionStatus, setMetadataLocation, type SessionStatus, type MountpointRef, type JottaEntry } from '@/lib/api'
 import { loadMetadataForFolder, saveArtworkChanges, ensureCategoriesForTags, type MetadataStore, type Category, type ArtworkTags } from '@/lib/metadata'
 import { LocationPicker } from '@/components/LocationPicker'
+import { IntakeBanner } from '@/components/IntakeBanner'
 import { CategoryManager } from '@/components/CategoryManager'
 import { TagAssignBrowser } from '@/components/TagAssignBrowser'
 import { TagFilterBrowser } from '@/components/TagFilterBrowser'
@@ -217,6 +218,10 @@ export default function CataloguePage() {
     return (
       <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
         {header}
+        {/* Opening the app is the only moment there is — iOS gives a web app
+            no background — so the check for newly backed-up work happens
+            here, on the screen you land on. */}
+        <IntakeBanner metadataLoc={session.metadataLocation} />
         <p className="text-sm text-zinc-500">
           Choose the folder holding the work you want to tag. Only what that folder needs is loaded,
           and you can switch to another one at any time.
