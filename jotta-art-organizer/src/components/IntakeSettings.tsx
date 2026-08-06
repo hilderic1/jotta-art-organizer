@@ -3,7 +3,14 @@
 import { useEffect, useState } from 'react'
 import type { MountpointRef } from '@/lib/api'
 import { LocationPicker } from './LocationPicker'
-import { loadIntakeConfig, saveIntakeConfig, type FolderRef, type IntakeConfig } from '@/lib/photoIntake'
+import {
+  loadIntakeConfig,
+  saveIntakeConfig,
+  countNotArtwork,
+  forgetNotArtwork,
+  type FolderRef,
+  type IntakeConfig,
+} from '@/lib/photoIntake'
 
 function label(folder: FolderRef | null): string {
   if (!folder) return 'not set'
@@ -22,6 +29,8 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
   const [picking, setPicking] = useState<'source' | 'dest' | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [setAside, setSetAside] = useState(0)
+  const [forgetting, setForgetting] = useState(false)
 
   useEffect(() => {
     let ignore = false
@@ -30,6 +39,10 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
         if (ignore) return
         setConfig(stored)
         setLoaded(true)
+      })
+      .then(() => countNotArtwork(metadataLoc))
+      .then((count) => {
+        if (!ignore) setSetAside(count)
       })
       .catch(() => {
         if (!ignore) setLoaded(true)
@@ -119,6 +132,34 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
           {(!config?.source || !config?.dest) && <span className="block">Set both folders first.</span>}
         </span>
       </label>
+
+      {/* The counterpart of "Never" in the banner. Without this, one tap on a
+          picture would be final and invisible — and the same list also holds
+          everything the scan itself rejected, so emptying it is how you make
+          it look again after the detection improves. */}
+      {setAside > 0 && (
+        <p className="mt-3 text-xs text-zinc-500">
+          {setAside.toLocaleString()} picture{setAside === 1 ? '' : 's'} set aside as not your work — they
+          won&rsquo;t be offered again.{' '}
+          <button
+            onClick={async () => {
+              setForgetting(true)
+              try {
+                await forgetNotArtwork(metadataLoc)
+                setSetAside(0)
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'Could not clear the list.')
+              } finally {
+                setForgetting(false)
+              }
+            }}
+            disabled={forgetting}
+            className="text-indigo-600 hover:underline disabled:opacity-50 dark:text-indigo-400"
+          >
+            {forgetting ? 'Clearing…' : 'Look at them again'}
+          </button>
+        </p>
+      )}
 
       {saving && <p className="mt-2 text-xs text-zinc-400">Saving…</p>}
       {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}

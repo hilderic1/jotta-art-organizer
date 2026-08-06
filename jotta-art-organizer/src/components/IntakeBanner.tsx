@@ -8,6 +8,7 @@ import {
   loadIntakeConfig,
   scanIntake,
   fileIntake,
+  rememberNotArtwork,
   type IntakeConfig,
   type IntakeMatch,
 } from '@/lib/photoIntake'
@@ -76,6 +77,18 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
       ignore = true
     }
   }, [metadataLoc])
+
+  // Recorded in the account, not just this session: the point of "never" is
+  // that the next scan doesn't even read this file's header again.
+  async function neverAgain(match: IntakeMatch) {
+    setMatches((prev) => prev?.filter((m) => m.md5 !== match.md5) ?? null)
+    try {
+      await rememberNotArtwork(metadataLoc, [match.md5])
+    } catch {
+      // It'll simply be offered again next time — annoying, not harmful, and
+      // not worth an error over a picture already off the screen.
+    }
+  }
 
   function toggle(md5: string) {
     setDeselected((prev) => {
@@ -208,6 +221,16 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
               <button onClick={() => setViewing(m)} className="min-w-0 flex-1 text-left">
                 <span className="block truncate text-xs">{m.name}</span>
                 <span className="block truncate text-[11px] text-zinc-500">{m.reason}</span>
+              </button>
+              {/* Unticking is "not this time"; this is "stop asking". Both
+                  are wanted — one for a piece you're not ready to file, one
+                  for a picture that will never be your work. */}
+              <button
+                onClick={() => neverAgain(m)}
+                className="shrink-0 text-[11px] text-zinc-500 hover:text-red-600 hover:underline dark:hover:text-red-400"
+                title="Don't offer this picture again"
+              >
+                Never
               </button>
             </li>
           ))}

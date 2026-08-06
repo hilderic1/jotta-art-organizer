@@ -103,6 +103,27 @@ async function saveExamined(metadataLoc: MountpointRef, examined: Set<string>): 
   })
 }
 
+// Set aside by hand: a picture that carries the marks of her tools but isn't
+// work she wants filed — a screenshot of the editor, a photograph she edited
+// once. Kept in the same list as the ones the scan rejected, because it means
+// exactly the same thing to every later run: don't offer this again.
+export async function rememberNotArtwork(metadataLoc: MountpointRef, md5s: string[]): Promise<void> {
+  const examined = await loadExamined(metadataLoc)
+  for (const md5 of md5s) examined.add(md5)
+  await saveExamined(metadataLoc, examined)
+}
+
+export async function countNotArtwork(metadataLoc: MountpointRef): Promise<number> {
+  return (await loadExamined(metadataLoc)).size
+}
+
+// Empties the list, so everything gets looked at again. The way back from a
+// "never" pressed by mistake — without it, one tap would be final, and a
+// hidden final decision is a bad thing to build.
+export async function forgetNotArtwork(metadataLoc: MountpointRef): Promise<void> {
+  await saveExamined(metadataLoc, new Set())
+}
+
 // Reading a header is one request per file, so a first run over a full camera
 // roll is bounded and resumed on the next start rather than made to finish.
 const EXAMINE_BUDGET = 300
