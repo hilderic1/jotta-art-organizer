@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MountpointRef } from '@/lib/api'
 import { Thumbnail } from './Thumbnail'
+import { ImageViewer } from './ImageViewer'
 import {
   loadIntakeConfig,
   scanIntake,
@@ -26,6 +27,10 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
   const [matches, setMatches] = useState<IntakeMatch[] | null>(null)
   const [remaining, setRemaining] = useState(0)
   const [showList, setShowList] = useState(false)
+  // Held as what's been turned *off*, so a match found by a later scan
+  // arrives selected rather than silently skipped.
+  const [deselected, setDeselected] = useState<Set<string>>(new Set())
+  const [viewing, setViewing] = useState<IntakeMatch | null>(null)
   const [filing, setFiling] = useState(false)
   const [filed, setFiled] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -72,12 +77,26 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
     }
   }, [metadataLoc])
 
+  function toggle(md5: string) {
+    setDeselected((prev) => {
+      const next = new Set(prev)
+      if (next.has(md5)) next.delete(md5)
+      else next.add(md5)
+      return next
+    })
+  }
+
   async function handleFile() {
     if (!config || !matches) return
+    // Anything left unticked stays where it is. It isn't recorded as "not
+    // artwork" either, so it comes back next time rather than being written
+    // off on the strength of one glance.
+    const chosen = matches.filter((m) => !deselected.has(m.md5))
+    if (chosen.length === 0) return
     setFiling(true)
     setError(null)
     try {
-      const result = await fileIntake(config, matches)
+      const result = await fileIntake(config, chosen)
       setFiled(result.copied)
       setMatches(null)
       if (result.failed.length > 0) {
@@ -119,6 +138,7 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
   if (!matches || matches.length === 0) return null
 
   const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
+  const chosenCount = matches.filter((m) => !deselected.has(m.md5)).length
 
   return (
     <div className="flex flex-col gap-2 rounded border border-indigo-300 bg-indigo-50 p-3 text-sm dark:border-indigo-800 dark:bg-indigo-950">
@@ -146,10 +166,14 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
       <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={handleFile}
-          disabled={filing}
+          disabled={filing || chosenCount === 0}
           className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
         >
-          {filing ? 'Copying…' : `Copy to ${config.dest.path || config.dest.mountpoint}`}
+          {filing
+            ? 'Copying…'
+            : chosenCount === matches.length
+              ? `Copy to ${config.dest.path || config.dest.mountpoint}`
+              : `Copy ${chosenCount} to ${config.dest.path || config.dest.mountpoint}`}
         </button>
         <button
           onClick={() => setShowList((v) => !v)}
@@ -165,14 +189,38 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
         <ul className="max-h-64 overflow-y-auto">
           {matches.map((m) => (
             <li key={m.md5} className="flex items-center gap-2 py-1">
-              <Thumbnail loc={sourceLoc} path={m.path} alt={m.name} px={64} className="h-8 w-8 shrink-0 rounded object-cover" />
-              <span className="min-w-0 flex-1">
+              {/* Ticked by default — everything here matched — but a
+                  photograph caught by mistake can be dropped rather than
+                  forcing all or nothing. */}
+              <input
+                type="checkbox"
+                checked={!deselected.has(m.md5)}
+                onChange={() => toggle(m.md5)}
+                aria-label={`Copy ${m.name}`}
+                className="shrink-0"
+              />
+              {/* The picture itself settles it faster than any label can,
+                  so the thumbnail opens it full size with what the file
+                  says beside it. */}
+              <button onClick={() => setViewing(m)} className="shrink-0" title={`Open ${m.name}`}>
+                <Thumbnail loc={sourceLoc} path={m.path} alt={m.name} px={64} className="h-8 w-8 shrink-0 rounded object-cover" />
+              </button>
+              <button onClick={() => setViewing(m)} className="min-w-0 flex-1 text-left">
                 <span className="block truncate text-xs">{m.name}</span>
                 <span className="block truncate text-[11px] text-zinc-500">{m.reason}</span>
-              </span>
+              </button>
             </li>
           ))}
         </ul>
+      )}
+
+      {viewing && (
+        <ImageViewer
+          loc={sourceLoc}
+          path={viewing.path}
+          title={viewing.name}
+          onClose={() => setViewing(null)}
+        />
       )}
 
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
