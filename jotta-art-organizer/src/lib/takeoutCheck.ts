@@ -23,6 +23,7 @@
 // the photo is safe after all.
 import { listFolder, viewUrl, walkTree, type JottaEntry, type MountpointRef } from '@/lib/api'
 import { findMetadataSidecar } from '@/lib/googlePhotosMetadata'
+import { parseEmbeddedMetadata } from '@/lib/imageMetadata'
 
 export type MissingPhoto = {
   /** The name Google knew it by, from the record. */
@@ -44,9 +45,11 @@ export type TakeoutCheckResult = {
   records: number
   /** Records whose picture isn't here — these exist only in Google. */
   missing: MissingPhoto[]
-  /** Records whose picture was removed here as a duplicate, with an
-   *  identical copy (same content hash) still stored elsewhere. */
-  keptElsewhere: number
+  /** Records with no picture beside them whose photo is safely stored all
+   *  the same, by how that was established: a removed picture's content hash
+   *  matching a live file; the same Google photo present in another export
+   *  folder; or a file of the same name carrying the same capture second. */
+  keptElsewhere: { content: number; sameGooglePhoto: number; nameAndTime: number }
   /** Pictures whose upload to Jottacloud never finished. */
   incomplete: IncompletePhoto[]
   /** When Google received the newest photo in the export: the cut-off. */
@@ -137,10 +140,38 @@ function titleFromRecordName(name: string): string {
   return base
 }
 
+// A JPEG's EXIF block sits in its first 64 KiB by definition (one APP1
+// segment), so that's all that's fetched — this runs on thousands of files.
+const EMBEDDED_RANGE_BYTES = 65536
+
+async function readEmbeddedTakenAt(loc: MountpointRef, path: string): Promise<number | undefined> {
+  try {
+    let res = await fetch(viewUrl(loc, path), { headers: { Range: `bytes=0-${EMBEDDED_RANGE_BYTES - 1}` } })
+    // Shorter than the range: Jottacloud refuses rather than sending less.
+    if (res.status === 416) res = await fetch(viewUrl(loc, path))
+    if (!res.ok) return undefined
+    return parseEmbeddedMetadata(await res.arrayBuffer()).dateTakenAtEpochSeconds
+  } catch {
+    return undefined
+  }
+}
+
+// A file stores its capture time as the camera's clock showed it, with no
+// time zone; Google's record holds the true moment. The two agree when they
+// differ by a whole time-zone offset — a multiple of 15 minutes, within 14
+// hours — and are identical below that, to the second.
+function sameMoment(embedded: number | undefined, takenAt: number): boolean {
+  // Exactly midnight is a date with no time (an IPTC date, say) — too
+  // coarse to identify anything.
+  if (embedded == null || embedded % 86400 === 0) return false
+  const diff = embedded - takenAt
+  return Math.abs(diff) <= 14 * 3600 && diff % 900 === 0
+}
+
 const LIST_CONCURRENCY = 4
 const READ_CONCURRENCY = 8
 
-export type TakeoutStage = 'listing' | 'reading' | 'indexing'
+export type TakeoutStage = 'listing' | 'reading' | 'indexing' | 'matching'
 
 export async function checkTakeout(
   loc: MountpointRef,
@@ -269,29 +300,85 @@ export async function checkTakeout(
     candidates.push({ file, folder, title, removed })
   }
 
-  // Only when some removed picture needs vouching for: gather the content
-  // hashes of every live file in this storage area — the export and
-  // everything around it, where the duplicate cleanup kept its copies.
+  // Every live file in this storage area — the export and everything around
+  // it, where the duplicate cleanup kept its copies — by content hash and by
+  // name. Only gathered when some record still needs vouching for.
   const liveHashes = new Set<string>()
-  if (candidates.some((c) => c.removed.length > 0)) {
+  const liveByName = new Map<string, string[]>()
+  if (candidates.length > 0) {
     let indexed = 0
     const walk = await walkTree(loc, '', {
       concurrency: LIST_CONCURRENCY,
       onFolder: () => onProgress?.('indexing', ++indexed, 0),
     })
-    for (const f of walk.files) liveHashes.add(f.md5)
+    for (const f of walk.files) {
+      liveHashes.add(f.md5)
+      const name = f.absPath.split('/').pop()!.toLowerCase()
+      const paths = liveByName.get(name)
+      if (paths) paths.push(f.absPath)
+      else liveByName.set(name, [f.absPath])
+    }
   }
 
+  // Takeout files one photo in several folders (an album and its year), each
+  // with its own record. Same name, same capture second, picture present in
+  // another folder: the same Google photo, safely here.
+  const presentPhotos = new Set<string>()
+  for (const path of safeRecords) {
+    const r = recordData.get(path)
+    if (r?.title && r.takenAt) presentPhotos.add(`${r.title.toLowerCase()}|${r.takenAt}`)
+  }
+
+  // The capture time a file carries inside it, read from its first bytes.
+  // Cached by path: several records can point at the same file.
+  const embeddedTimes = new Map<string, Promise<number | undefined>>()
+  const embeddedTime = (path: string) => {
+    let t = embeddedTimes.get(path)
+    if (!t) {
+      t = readEmbeddedTakenAt(loc, path)
+      embeddedTimes.set(path, t)
+    }
+    return t
+  }
+
+  type Verdict = 'content' | 'sameGooglePhoto' | 'nameAndTime' | null
+  async function vouch(c: Candidate): Promise<Verdict> {
+    const record = recordData.get(c.file.path)
+    // Same content hash as a live file: the photo is safe, just not here.
+    if (c.removed.some((r) => r.md5 && liveHashes.has(r.md5))) return 'content'
+    if (!record?.takenAt) return null
+    if (presentPhotos.has(`${c.title.toLowerCase()}|${record.takenAt}`)) return 'sameGooglePhoto'
+    // A file by the same name elsewhere, whose own capture time is the
+    // record's to the second. Names like DSCF0001.JPG repeat endlessly, so
+    // the name alone proves nothing; the time is what makes it this photo.
+    for (const path of liveByName.get(c.title.toLowerCase()) ?? []) {
+      if (sameMoment(await embeddedTime(path), record.takenAt)) return 'nameAndTime'
+    }
+    return null
+  }
+
+  const verdicts: Verdict[] = new Array(candidates.length).fill(null)
+  let matchCursor = 0
+  let matched = 0
+  async function matcher() {
+    for (;;) {
+      const i = matchCursor++
+      if (i >= candidates.length) return
+      verdicts[i] = await vouch(candidates[i])
+      onProgress?.('matching', ++matched, candidates.length)
+    }
+  }
+  await Promise.all(Array.from({ length: READ_CONCURRENCY }, matcher))
+
   const missing: MissingPhoto[] = []
-  let keptElsewhere = 0
-  for (const { file, folder, title, removed } of candidates) {
+  const keptElsewhere = { content: 0, sameGooglePhoto: 0, nameAndTime: 0 }
+  candidates.forEach(({ file, folder, title, removed }, i) => {
     const record = recordData.get(file.path)
-    // Same content hash as a live file, and fully stored when it was here:
-    // the photo is safe, just not in this folder any more.
-    if (removed.some((r) => r.md5 && liveHashes.has(r.md5))) {
-      keptElsewhere++
+    const verdict = verdicts[i]
+    if (verdict) {
+      keptElsewhere[verdict]++
       if (record?.takenAt) archived.push({ takenAt: record.takenAt, lat: record.lat, lon: record.lon })
-      continue
+      return
     }
     missing.push({
       title,
@@ -300,7 +387,7 @@ export async function checkTakeout(
       uploadedAt: record?.uploadedAt,
       removedHere: removed.length > 0 || undefined,
     })
-  }
+  })
 
   return {
     archived,

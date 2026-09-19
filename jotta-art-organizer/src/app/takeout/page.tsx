@@ -63,6 +63,9 @@ export default function TakeoutCheckPage() {
   }
 
   const folderLabel = folder ? (folder.path ? `${folder.mountpoint}/${folder.path}` : folder.mountpoint) : ''
+  const keptTotal = result
+    ? result.keptElsewhere.content + result.keptElsewhere.sameGooglePhoto + result.keptElsewhere.nameAndTime
+    : 0
   const safe = result && result.missing.length === 0 && result.incomplete.length === 0 && result.unreadable === 0
 
   return (
@@ -89,7 +92,9 @@ export default function TakeoutCheckPage() {
           {progress?.stage === 'reading'
             ? `Reading Google's records — ${progress.done.toLocaleString()} of ${progress.total.toLocaleString()}`
             : progress?.stage === 'indexing'
-            ? `Looking for kept copies of removed duplicates across ${folder?.mountpoint} — ${progress.done.toLocaleString()} folders so far`
+            ? `Looking for copies elsewhere in ${folder?.mountpoint} — ${progress.done.toLocaleString()} folders so far`
+            : progress?.stage === 'matching'
+            ? `Comparing pictures with no file beside them — ${progress.done.toLocaleString()} of ${progress.total.toLocaleString()}`
             : `Listing ${folderLabel}${progress ? ` — ${progress.done} folders so far` : '…'}`}
         </div>
       )}
@@ -130,12 +135,33 @@ export default function TakeoutCheckPage() {
             </div>
           )}
 
-          {result.keptElsewhere > 0 && (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              {result.keptElsewhere.toLocaleString()} picture{result.keptElsewhere === 1 ? ' was' : 's were'} removed
-              from the export as duplicates. An identical copy of each — same content, checked by fingerprint — is
-              still in {folder?.mountpoint}, so they count as safe.
-            </p>
+          {keptTotal > 0 && (
+            <section className="text-sm text-zinc-600 dark:text-zinc-400">
+              <p>
+                {keptTotal.toLocaleString()} of Google&rsquo;s records have no picture beside them, but the photo is
+                safely in {folder?.mountpoint} all the same:
+              </p>
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                {result.keptElsewhere.sameGooglePhoto > 0 && (
+                  <li>
+                    {result.keptElsewhere.sameGooglePhoto.toLocaleString()} are also in another folder of the export
+                    — same name, taken the same second.
+                  </li>
+                )}
+                {result.keptElsewhere.nameAndTime > 0 && (
+                  <li>
+                    {result.keptElsewhere.nameAndTime.toLocaleString()} match a file elsewhere with the same name
+                    and the same capture time stored inside it, to the second.
+                  </li>
+                )}
+                {result.keptElsewhere.content > 0 && (
+                  <li>
+                    {result.keptElsewhere.content.toLocaleString()} were removed as duplicates; an identical copy,
+                    checked by fingerprint, is still there.
+                  </li>
+                )}
+              </ul>
+            </section>
           )}
 
           {result.missing.length > 0 && (
