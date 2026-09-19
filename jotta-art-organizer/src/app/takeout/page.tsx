@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { getSessionStatus, type MountpointRef, type SessionStatus } from '@/lib/api'
 import { LocationPicker } from '@/components/LocationPicker'
-import { checkTakeout, type TakeoutCheckResult } from '@/lib/takeoutCheck'
+import { checkTakeout, type TakeoutCheckResult, type TakeoutStage } from '@/lib/takeoutCheck'
 import { GooglePhotosHandoff } from '@/components/GooglePhotosHandoff'
 
 function day(epochSeconds: number | undefined): string {
@@ -20,7 +20,7 @@ export default function TakeoutCheckPage() {
   const [session, setSession] = useState<SessionStatus | null>(null)
   const [folder, setFolder] = useState<(MountpointRef & { path?: string }) | null>(null)
   const [running, setRunning] = useState(false)
-  const [progress, setProgress] = useState<{ stage: 'listing' | 'reading'; done: number; total: number } | null>(null)
+  const [progress, setProgress] = useState<{ stage: TakeoutStage; done: number; total: number } | null>(null)
   const [result, setResult] = useState<TakeoutCheckResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -88,6 +88,8 @@ export default function TakeoutCheckPage() {
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-indigo-600 dark:border-zinc-700 dark:border-t-indigo-500" />
           {progress?.stage === 'reading'
             ? `Reading Google's records — ${progress.done.toLocaleString()} of ${progress.total.toLocaleString()}`
+            : progress?.stage === 'indexing'
+            ? `Looking for kept copies of removed duplicates across ${folder?.mountpoint} — ${progress.done.toLocaleString()} folders so far`
             : `Listing ${folderLabel}${progress ? ` — ${progress.done} folders so far` : '…'}`}
         </div>
       )}
@@ -128,6 +130,14 @@ export default function TakeoutCheckPage() {
             </div>
           )}
 
+          {result.keptElsewhere > 0 && (
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              {result.keptElsewhere.toLocaleString()} picture{result.keptElsewhere === 1 ? ' was' : 's were'} removed
+              from the export as duplicates. An identical copy of each — same content, checked by fingerprint — is
+              still in {folder?.mountpoint}, so they count as safe.
+            </p>
+          )}
+
           {result.missing.length > 0 && (
             <section>
               <h2 className="text-sm font-medium text-red-700 dark:text-red-400">
@@ -143,6 +153,12 @@ export default function TakeoutCheckPage() {
                   <li key={`${m.folder}/${m.title}/${i}`} className="border-b border-zinc-100 py-1 dark:border-zinc-900">
                     <span className="font-medium">{m.title}</span>
                     <span className="text-zinc-500"> — taken {day(m.takenAt)}</span>
+                    {m.removedHere && (
+                      <span className="text-amber-700 dark:text-amber-500">
+                        {' '}
+                        · removed here, no identical copy found in {folder?.mountpoint}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>

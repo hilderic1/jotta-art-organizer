@@ -14,7 +14,14 @@
 // The second is the one that matters when deleting by date on the website,
 // because the website orders by when a photo was *taken*: an old picture
 // uploaded last week sits among the old dates, but isn't in this export.
-import { listFolder, viewUrl, type JottaEntry, type MountpointRef } from '@/lib/api'
+//
+// A picture can also be missing from beside its record on purpose: the
+// duplicate cleanup removes copies whose identical content is kept elsewhere.
+// Jottacloud keeps removed files in its trash, still listed with their
+// content hash, so such a record is checked by content: if the removed
+// picture's hash belongs to a live file anywhere in the same storage area,
+// the photo is safe after all.
+import { listFolder, viewUrl, walkTree, type JottaEntry, type MountpointRef } from '@/lib/api'
 import { findMetadataSidecar } from '@/lib/googlePhotosMetadata'
 
 export type MissingPhoto = {
@@ -23,6 +30,10 @@ export type MissingPhoto = {
   folder: string
   takenAt?: number
   uploadedAt?: number
+  /** The picture was here once and was removed, but no copy with the same
+   *  content could be found — perhaps it's in the trash only, or kept
+   *  somewhere this check didn't look. */
+  removedHere?: boolean
 }
 
 export type IncompletePhoto = { name: string; folder: string; state: string }
@@ -33,6 +44,9 @@ export type TakeoutCheckResult = {
   records: number
   /** Records whose picture isn't here — these exist only in Google. */
   missing: MissingPhoto[]
+  /** Records whose picture was removed here as a duplicate, with an
+   *  identical copy (same content hash) still stored elsewhere. */
+  keptElsewhere: number
   /** Pictures whose upload to Jottacloud never finished. */
   incomplete: IncompletePhoto[]
   /** When Google received the newest photo in the export: the cut-off. */
@@ -109,18 +123,36 @@ function exactPair(recordName: string, mediaName: string): boolean {
   return false
 }
 
+// The name Google knew a picture by, from a record's own filename, for when
+// the record can't say. Takeout cuts long names short anywhere in the suffix
+// ("….jpg.supplemental-me.json"), so any leftover piece of
+// ".supplemental-metadata" goes too.
+function titleFromRecordName(name: string): string {
+  const base = name.replace(/\.json$/i, '')
+  const dot = base.lastIndexOf('.')
+  if (dot > 0) {
+    const tail = base.slice(dot + 1).toLowerCase()
+    if (tail.length > 0 && 'supplemental-metadata'.startsWith(tail)) return base.slice(0, dot)
+  }
+  return base
+}
+
 const LIST_CONCURRENCY = 4
 const READ_CONCURRENCY = 8
+
+export type TakeoutStage = 'listing' | 'reading' | 'indexing'
 
 export async function checkTakeout(
   loc: MountpointRef,
   rootPath: string,
-  onProgress?: (stage: 'listing' | 'reading', done: number, total: number) => void
+  onProgress?: (stage: TakeoutStage, done: number, total: number) => void
 ): Promise<TakeoutCheckResult> {
   // Folder by folder, keeping each folder's files together: a record is
   // paired with a picture only among its own siblings, which is how Takeout
-  // lays them out.
+  // lays them out. Removed files are kept apart: they don't count as here,
+  // but their content hash can show a copy survives elsewhere.
   const byFolder = new Map<string, JottaEntry[]>()
+  const removedByFolder = new Map<string, JottaEntry[]>()
   const queue = [rootPath]
   let listed = 0
 
@@ -128,9 +160,10 @@ export async function checkTakeout(
     for (;;) {
       const folder = queue.shift()
       if (folder === undefined) return
-      const listing = await listFolder(loc, folder)
+      const listing = await listFolder(loc, folder, { includeDeleted: true })
       byFolder.set(folder, listing.files.filter((f) => !f.deleted))
-      for (const sub of listing.folders) queue.push(sub.path)
+      removedByFolder.set(folder, listing.files.filter((f) => f.deleted && f.md5))
+      for (const sub of listing.folders) if (!sub.deleted) queue.push(sub.path)
       listed++
       onProgress?.('listing', listed, listed + queue.length)
     }
@@ -210,29 +243,68 @@ export async function checkTakeout(
     }
   }
 
-  // A record only counts as missing its picture if the record is genuinely
-  // about a photo. Pairing is by name, and Takeout's names are messy, so a
-  // record whose title *is* present among its siblings was just a naming
-  // mismatch rather than a lost file.
-  const missing: MissingPhoto[] = []
-  for (const { file, folder } of unpairedRecords) {
-    const record = recordData.get(file.path)
-    const title = record?.title ?? file.name.replace(/(\.supplemental-metadata)?\.json$/i, '')
-    const siblings = byFolder.get(folder) ?? []
-    // Not reported as missing, but not vouched for either: duplicates share
-    // a title, so a present file by that name may be the other one.
-    if (siblings.some((s) => s.name.toLowerCase() === title.toLowerCase())) continue
-    missing.push({ title, folder, takenAt: record?.takenAt, uploadedAt: record?.uploadedAt })
-  }
-
   const archived: ArchivedPhoto[] = []
   for (const path of safeRecords) {
     const record = recordData.get(path)
     if (record?.takenAt) archived.push({ takenAt: record.takenAt, lat: record.lat, lon: record.lon })
   }
 
+  // A record only counts as missing its picture if the record is genuinely
+  // about a photo. Pairing is by name, and Takeout's names are messy, so a
+  // record whose title *is* present among its siblings was just a naming
+  // mismatch rather than a lost file.
+  type Candidate = { file: JottaEntry; folder: string; title: string; removed: JottaEntry[] }
+  const candidates: Candidate[] = []
+  for (const { file, folder } of unpairedRecords) {
+    const record = recordData.get(file.path)
+    const title = record?.title ?? titleFromRecordName(file.name)
+    const siblings = byFolder.get(folder) ?? []
+    // Not reported as missing, but not vouched for either: duplicates share
+    // a title, so a present file by that name may be the other one.
+    if (siblings.some((s) => s.name.toLowerCase() === title.toLowerCase())) continue
+    // The picture that used to sit beside this record, if it was removed.
+    const removed = (removedByFolder.get(folder) ?? []).filter(
+      (r) => exactPair(file.name, r.name) || r.name.toLowerCase() === title.toLowerCase()
+    )
+    candidates.push({ file, folder, title, removed })
+  }
+
+  // Only when some removed picture needs vouching for: gather the content
+  // hashes of every live file in this storage area — the export and
+  // everything around it, where the duplicate cleanup kept its copies.
+  const liveHashes = new Set<string>()
+  if (candidates.some((c) => c.removed.length > 0)) {
+    let indexed = 0
+    const walk = await walkTree(loc, '', {
+      concurrency: LIST_CONCURRENCY,
+      onFolder: () => onProgress?.('indexing', ++indexed, 0),
+    })
+    for (const f of walk.files) liveHashes.add(f.md5)
+  }
+
+  const missing: MissingPhoto[] = []
+  let keptElsewhere = 0
+  for (const { file, folder, title, removed } of candidates) {
+    const record = recordData.get(file.path)
+    // Same content hash as a live file, and fully stored when it was here:
+    // the photo is safe, just not in this folder any more.
+    if (removed.some((r) => r.md5 && liveHashes.has(r.md5))) {
+      keptElsewhere++
+      if (record?.takenAt) archived.push({ takenAt: record.takenAt, lat: record.lat, lon: record.lon })
+      continue
+    }
+    missing.push({
+      title,
+      folder,
+      takenAt: record?.takenAt,
+      uploadedAt: record?.uploadedAt,
+      removedHere: removed.length > 0 || undefined,
+    })
+  }
+
   return {
     archived,
+    keptElsewhere,
     folders: byFolder.size,
     photos,
     records: allRecords.length,
