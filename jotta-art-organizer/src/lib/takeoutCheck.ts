@@ -42,9 +42,15 @@ export type TakeoutCheckResult = {
   /** Records that couldn't be read. Counted, because a check that silently
    *  skipped some would claim more certainty than it has. */
   unreadable: number
+  /** Every exported photo confirmed to be safely here — its picture present
+   *  and fully uploaded — with what's needed to find it again in Google
+   *  Photos: when it was taken, and where, for the time zone. */
+  archived: ArchivedPhoto[]
 }
 
-type SidecarRecord = { title?: string; takenAt?: number; uploadedAt?: number }
+export type ArchivedPhoto = { takenAt: number; lat?: number; lon?: number }
+
+type SidecarRecord = { title?: string; takenAt?: number; uploadedAt?: number; lat?: number; lon?: number }
 
 async function readRecord(loc: MountpointRef, file: JottaEntry): Promise<SidecarRecord | null> {
   try {
@@ -54,12 +60,19 @@ async function readRecord(loc: MountpointRef, file: JottaEntry): Promise<Sidecar
       title?: string
       photoTakenTime?: { timestamp?: string }
       creationTime?: { timestamp?: string }
+      geoData?: { latitude?: number; longitude?: number }
+      geoDataExif?: { latitude?: number; longitude?: number }
     }
     const num = (s: string | undefined) => {
       const n = Number(s)
       return s && Number.isFinite(n) && n > 0 ? n : undefined
     }
+    // Takeout writes 0,0 for "no location" rather than leaving it out —
+    // which would otherwise put every such photo in the Gulf of Guinea.
+    const geo = [data.geoData, data.geoDataExif].find((g) => g && (g.latitude || g.longitude))
     return {
+      lat: geo?.latitude,
+      lon: geo?.longitude,
       title: data.title,
       takenAt: num(data.photoTakenTime?.timestamp),
       uploadedAt: num(data.creationTime?.timestamp),
@@ -76,6 +89,24 @@ function isPhotoRecord(name: string): boolean {
   const lower = name.toLowerCase()
   if (!lower.endsWith('.json')) return false
   return !/^(metadata|metadati|métadonnées|print-subscriptions|shared_album_comments|user-generated-memory-titles)(\(\d+\))?\.json$/.test(lower)
+}
+
+// The naming rules Takeout actually uses, and nothing looser. A record that
+// only pairs by resemblance can't be trusted to mean its photo is here.
+function exactPair(recordName: string, mediaName: string): boolean {
+  const r = recordName.toLowerCase()
+  const m = mediaName.toLowerCase()
+  if (r === `${m}.supplemental-metadata.json` || r === `${m}.json`) return true
+  // The suffix cut short but the photo's name intact:
+  // "IMG_1234.JPG.supplemental-metad.json".
+  if (r.startsWith(`${m}.`) && r.endsWith('.json')) return true
+  // Numbered duplicates: "IMG_1234(1).jpg" ↔ "IMG_1234.jpg(1).supplemental-metadata.json".
+  const dup = m.match(/^(.*)\((\d+)\)(\.[^.]+)$/)
+  if (dup) {
+    const base = `${dup[1]}${dup[3]}(${dup[2]})`
+    if (r === `${base}.supplemental-metadata.json` || r === `${base}.json`) return true
+  }
+  return false
 }
 
 const LIST_CONCURRENCY = 4
@@ -113,6 +144,9 @@ export async function checkTakeout(
   let photos = 0
   const incomplete: IncompletePhoto[] = []
   const unpairedRecords: { file: JottaEntry; folder: string }[] = []
+  // Records whose picture is here and fully uploaded: the only ones it's
+  // safe to delete from Google.
+  const safeRecords = new Set<string>()
   const allRecords: JottaEntry[] = []
 
   for (const [folder, files] of byFolder) {
@@ -123,13 +157,21 @@ export async function checkTakeout(
     const paired = new Set<string>()
     for (const m of media) {
       photos++
+      const complete = !m.state || m.state.toUpperCase() === 'COMPLETED'
       // An upload Jottacloud never finished is in the listing but not safely
       // stored — as good as missing for the purpose of deleting the original.
       if (m.state && m.state.toUpperCase() !== 'COMPLETED') {
         incomplete.push({ name: m.name, folder, state: m.state })
       }
       const record = findMetadataSidecar(records, m.name)
-      if (record) paired.add(record.path)
+      if (record) {
+        paired.add(record.path)
+        // Only an exact pairing vouches for a photo. The matcher's fuzzy
+        // fallback is right for spotting that a record isn't orphaned — an
+        // "-edited" copy lands on its original's record — but if the
+        // original itself never arrived, the copy would vouch for it.
+        if (complete && exactPair(record.name, m.name)) safeRecords.add(record.path)
+      }
     }
     for (const r of records) {
       if (!paired.has(r.path)) unpairedRecords.push({ file: r, folder })
@@ -177,12 +219,20 @@ export async function checkTakeout(
     const record = recordData.get(file.path)
     const title = record?.title ?? file.name.replace(/(\.supplemental-metadata)?\.json$/i, '')
     const siblings = byFolder.get(folder) ?? []
-    const present = siblings.some((s) => s.name.toLowerCase() === title.toLowerCase())
-    if (present) continue
+    // Not reported as missing, but not vouched for either: duplicates share
+    // a title, so a present file by that name may be the other one.
+    if (siblings.some((s) => s.name.toLowerCase() === title.toLowerCase())) continue
     missing.push({ title, folder, takenAt: record?.takenAt, uploadedAt: record?.uploadedAt })
   }
 
+  const archived: ArchivedPhoto[] = []
+  for (const path of safeRecords) {
+    const record = recordData.get(path)
+    if (record?.takenAt) archived.push({ takenAt: record.takenAt, lat: record.lat, lon: record.lon })
+  }
+
   return {
+    archived,
     folders: byFolder.size,
     photos,
     records: allRecords.length,

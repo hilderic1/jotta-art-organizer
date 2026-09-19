@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { getSessionStatus, type MountpointRef, type SessionStatus } from '@/lib/api'
 import { LocationPicker } from '@/components/LocationPicker'
 import { checkTakeout, type TakeoutCheckResult } from '@/lib/takeoutCheck'
+import { GooglePhotosHandoff } from '@/components/GooglePhotosHandoff'
 
 function day(epochSeconds: number | undefined): string {
   if (!epochSeconds) return 'unknown'
@@ -171,12 +172,17 @@ export default function TakeoutCheckPage() {
             </p>
           )}
 
+          {/* The easy route: only photos confirmed safe here are ever ticked, so
+              anything Google received after the export is left alone without
+              you having to find it. */}
+          <GooglePhotosHandoff archived={result.archived} />
+
           {/* The part no check can do from here: Google may have received
               photos after the export, and the website sorts them among the
               old dates by when they were taken. */}
           {result.latestUpload && (
             <section className="rounded border border-zinc-200 p-3 text-sm dark:border-zinc-800">
-              <h2 className="font-medium">Before you delete a range of dates</h2>
+              <h2 className="font-medium">Or, deleting by date range yourself</h2>
               <ol className="mt-2 list-decimal pl-5 text-xs text-zinc-600 dark:text-zinc-400">
                 <li className="py-0.5">
                   In Google Photos, search for <strong>Recently added</strong>. Anything added after{' '}
