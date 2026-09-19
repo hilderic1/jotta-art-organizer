@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { setup, getSessionStatus, disconnectSession, type SessionStatus } from '@/lib/api'
 import { FolderBrowser } from '@/components/FolderBrowser'
 import { IntakeSettings } from '@/components/IntakeSettings'
@@ -57,6 +58,18 @@ export default function SetupPage() {
         {/* Only once there's somewhere to keep the settings — the catalogue
             location is chosen on first use of the Catalogue. */}
         {status.metadataLocation && <IntakeSettings metadataLoc={status.metadataLocation} />}
+
+        {/* A one-off check rather than a place you work, so it's linked from
+            here instead of taking a slot in the nav. */}
+        <section className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+          <h2 className="text-sm font-medium">Deleting from Google Photos?</h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            Check first that your Takeout export fully arrived here, and up to which date it&rsquo;s complete.
+          </p>
+          <Link href="/takeout" className="mt-2 inline-block text-sm text-indigo-600 hover:underline dark:text-indigo-400">
+            Check the export →
+          </Link>
+        </section>
 
         <section>
           <h2 className="mb-2 text-sm font-medium text-zinc-600 dark:text-zinc-400">Browse your Archive</h2>
