@@ -30,13 +30,17 @@ export function isHighCardinality(category: Category): boolean {
 }
 
 export function parseDateValue(value: string): Date | null {
-  // Handle various date formats: YYYY, YYYY-MM-DD, ISO strings, timestamps
-  const num = parseInt(value, 10)
-  if (!isNaN(num)) {
-    if (num > 100000) return new Date(num) // timestamp in ms
-    if (num >= 1900 && num <= 2100) return new Date(num, 0, 1) // year only
+  // Handle various date formats: YYYY, YYYY-MM-DD, ISO strings, timestamps.
+  // The number checks must match the *whole* string. parseInt reads leading
+  // digits and stops, so "2019-06-14" came back as 2019, was taken for a bare
+  // year, and every stored date collapsed onto 1 January of its year.
+  const trimmed = value.trim()
+  if (/^\d{4}$/.test(trimmed)) {
+    const year = Number(trimmed)
+    if (year >= 1900 && year <= 2100) return new Date(year, 0, 1)
   }
-  const parsed = new Date(value)
+  if (/^\d{6,}$/.test(trimmed)) return new Date(Number(trimmed)) // timestamp in ms
+  const parsed = new Date(trimmed)
   return !isNaN(parsed.getTime()) ? parsed : null
 }
 
