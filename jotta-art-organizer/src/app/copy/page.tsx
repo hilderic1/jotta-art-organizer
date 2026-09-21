@@ -16,6 +16,7 @@ import {
   type WalkEntry,
   type JottaFolderListing,
 } from '@/lib/api'
+import { describeArrivedFiles, type AutoDescribeResult } from '@/lib/autoDescribe'
 
 type Location = { loc: MountpointRef; path: string }
 
@@ -39,6 +40,9 @@ type Result = {
   failed: { relPath: string; error: string }[]
   removed: number
   removeFailed: { relPath: string; error: string }[]
+  /** Set once the copied pictures have been read into the catalogue. */
+  described?: AutoDescribeResult
+  describeError?: string
 }
 
 function formatBytes(bytes: number): string {
@@ -86,6 +90,7 @@ export default function CopyPage() {
   const [copying, setCopying] = useState(false)
   const [progress, setProgress] = useState<Progress | null>(null)
   const [result, setResult] = useState<Result | null>(null)
+  const [describing, setDescribing] = useState<{ done: number; total: number } | null>(null)
 
   useEffect(() => {
     getSessionStatus().then(setSession)
@@ -239,6 +244,37 @@ export default function CopyPage() {
 
     setProgress(null)
     setResult({ copied, failed, removed, removeFailed })
+
+    // Straight on, without being asked: a picture that has arrived but isn't
+    // described yet is one the catalogue can't find at all, and leaving that
+    // to a separate manual run is how a folder of photos goes missing from
+    // Find while sitting plainly in Jottacloud.
+    const copiedPaths = plan.toCopy
+      .filter((f) => !failed.some((x) => x.relPath === f.relPath))
+      .map((f) => joinPath(destination.path, f.relPath))
+    if (session?.authenticated && session.metadataLocation && copiedPaths.length > 0) {
+      setDescribing({ done: 0, total: copiedPaths.length })
+      try {
+        const described = await describeArrivedFiles(
+          session.metadataLocation,
+          destination.loc,
+          destination.path,
+          copiedPaths,
+          { onProgress: (done, total) => setDescribing({ done, total }) }
+        )
+        setResult({ copied, failed, removed, removeFailed, described })
+      } catch (err) {
+        setResult({
+          copied,
+          failed,
+          removed,
+          removeFailed,
+          describeError: err instanceof Error ? err.message : 'Could not describe the copied pictures.',
+        })
+      } finally {
+        setDescribing(null)
+      }
+    }
     setCopying(false)
   }
 
@@ -530,12 +566,36 @@ export default function CopyPage() {
             </div>
           )}
 
+          {describing && (
+            <p className="mt-3 text-sm text-zinc-500">
+              Reading what the pictures say about themselves — {describing.done.toLocaleString()} of{' '}
+              {describing.total.toLocaleString()}
+            </p>
+          )}
+
           {result && (
             <div className="mt-3 text-sm">
               <p className="text-green-600 dark:text-green-400">
                 Copied {result.copied} file(s)
                 {result.removed > 0 && `, removed ${result.removed} original(s)`}.
               </p>
+              {result.described && result.described.described > 0 && (
+                <p className="text-zinc-600 dark:text-zinc-400">
+                  {result.described.described.toLocaleString()} described from their own dates, cameras and places,
+                  so they can be found in the catalogue straight away.
+                </p>
+              )}
+              {result.described && result.described.unchanged > 0 && (
+                <p className="text-xs text-zinc-500">
+                  {result.described.unchanged.toLocaleString()} had nothing to read, or were already described.
+                </p>
+              )}
+              {(result.describeError || (result.described?.failed ?? 0) > 0) && (
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  {result.describeError ??
+                    `${result.described?.failed.toLocaleString()} could not be read — everything arrived safely; run Describe in bulk to try those again.`}
+                </p>
+              )}
               {result.removeFailed.length > 0 && (
                 <details className="mt-1 text-xs text-amber-700 dark:text-amber-400">
                   <summary className="cursor-pointer">

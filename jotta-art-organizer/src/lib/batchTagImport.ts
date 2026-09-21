@@ -98,11 +98,15 @@ export function newBatchManifest(
 // (before this app knew about sidecar tags) still gets found and attached
 // to whichever copy of that content is still live — no restore needed,
 // since tags are keyed by content hash, not by path.
-type CandidateGroup = { liveEntry: JottaEntry; namesToTry: string[]; siblings: JottaEntry[] }
+export type CandidateGroup = { liveEntry: JottaEntry; namesToTry: string[]; siblings: JottaEntry[] }
 
 type FileResult = { entry: JottaEntry; tags: Record<string, string[]> | null; error?: string }
 
-async function processGroup(
+/** Everything one picture can say about itself: its Google sidecar, its own
+ *  embedded properties, or both, folded onto whatever it is tagged with
+ *  already. Shared with the describing that follows a copy, so a picture
+ *  gains the same tags however it arrived. */
+export async function deriveTagsForFile(
   loc: MountpointRef,
   group: CandidateGroup,
   existingTags: Record<string, string[]> | undefined,
@@ -233,7 +237,7 @@ export async function runBatchChunk(
           cInFlight++
           const existing = store.artworks.find((a) => a.md5 === group.liveEntry.md5)
           opts?.onFile?.(group.liveEntry.path)
-          processGroup(loc, group, existing?.tags, manifest.readFileProperties === true)
+          deriveTagsForFile(loc, group, existing?.tags, manifest.readFileProperties === true)
             .then((result) => results.push(result))
             .finally(() => {
               cInFlight--

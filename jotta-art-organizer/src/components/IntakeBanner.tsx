@@ -12,6 +12,7 @@ import {
   type IntakeConfig,
   type IntakeMatch,
 } from '@/lib/photoIntake'
+import { describeArrivedFiles } from '@/lib/autoDescribe'
 
 /**
  * Offers to file new PicsArt and AI-made pictures out of the iPad's backup.
@@ -33,7 +34,9 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
   const [deselected, setDeselected] = useState<Set<string>>(new Set())
   const [viewing, setViewing] = useState<IntakeMatch | null>(null)
   const [filing, setFiling] = useState(false)
+  const [describing, setDescribing] = useState<{ done: number; total: number } | null>(null)
   const [filed, setFiled] = useState<number | null>(null)
+  const [described, setDescribed] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [dismissed, setDismissed] = useState(false)
   // React runs effects twice in development; a scan is expensive enough that
@@ -115,6 +118,28 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
       if (result.failed.length > 0) {
         setError(`${result.failed.length} could not be copied: ${result.failed[0].error}`)
       }
+      // A picture nobody has read is invisible to the catalogue — not
+      // findable by date, place or camera — so reading it is part of filing
+      // it, not a separate errand to remember afterwards.
+      if (result.copiedPaths.length > 0) {
+        const destLoc = { device: config.dest.device, mountpoint: config.dest.mountpoint }
+        try {
+          const outcome = await describeArrivedFiles(
+            metadataLoc,
+            destLoc,
+            config.dest.path,
+            result.copiedPaths,
+            { onProgress: (done, total) => setDescribing({ done, total }) }
+          )
+          setDescribed(outcome.described)
+        } catch {
+          // The copies are safely in place; describing them is what the
+          // catalogue's own bulk import does anyway, so a failure here is
+          // worth no alarm of its own.
+        } finally {
+          setDescribing(null)
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Filing failed.')
     } finally {
@@ -139,6 +164,16 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
     return (
       <div className="rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
         Filed {filed} picture{filed === 1 ? '' : 's'} into {config.dest.path || config.dest.mountpoint}.
+        {describing && (
+          <span className="block text-xs">
+            Reading what they say about themselves — {describing.done} of {describing.total}
+          </span>
+        )}
+        {!describing && described > 0 && (
+          <span className="block text-xs">
+            {described} of them described from what the file says — ready to find by date, place or camera.
+          </span>
+        )}
         {error && <span className="block text-xs">{error}</span>}
       </div>
     )

@@ -190,7 +190,12 @@ export async function scanIntake(
   return { matches, remaining: candidates.length - batch.length, examined: batch.length }
 }
 
-export type IntakeResult = { copied: number; failed: { name: string; error: string }[] }
+export type IntakeResult = {
+  copied: number
+  failed: { name: string; error: string }[]
+  /** Where each copy landed, so the caller can describe them straight away. */
+  copiedPaths: string[]
+}
 
 // One at a time: a copy is a server-side operation on Jottacloud's side, and
 // a burst of them against a folder being written to is how the earlier copy
@@ -208,20 +213,23 @@ export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): 
     (await listFolder(destLoc, config.dest.path).catch(() => null))?.files.map((f) => f.name) ?? []
   )
 
+  const copiedPaths: string[] = []
   for (const match of matches) {
     const name = uniqueName(match.name, existing)
     try {
       // Joined rather than interpolated: a destination at the root of a
       // mountpoint has an empty path, which would otherwise give "/name".
-      await copyFile(sourceLoc, match.path, destLoc, [config.dest.path, name].filter(Boolean).join('/'))
+      const destPath = [config.dest.path, name].filter(Boolean).join('/')
+      await copyFile(sourceLoc, match.path, destLoc, destPath)
       existing.add(name)
+      copiedPaths.push(destPath)
       copied++
     } catch (err) {
       failed.push({ name: match.name, error: err instanceof Error ? err.message : 'Copy failed.' })
     }
   }
 
-  return { copied, failed }
+  return { copied, failed, copiedPaths }
 }
 
 function uniqueName(name: string, taken: Set<string>): string {
