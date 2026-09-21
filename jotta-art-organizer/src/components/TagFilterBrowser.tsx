@@ -90,6 +90,34 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
     })
   }
 
+  // What each filter offers is taken from the pictures being filtered, not
+  // from the category's vocabulary alone. The vocabulary is a list kept
+  // alongside the pictures, and the two drift: a date arriving with a photo
+  // is one value per picture, so any gap in that list silently put pictures
+  // beyond the reach of the filter — a date range that stopped short of the
+  // newest photos, while those photos sat right there in the results.
+  const valuesByCategory = useMemo(() => {
+    const present = new Map<string, Set<string>>()
+    for (const a of artworks) {
+      for (const [categoryId, values] of Object.entries(a.tags)) {
+        let set = present.get(categoryId)
+        if (!set) {
+          set = new Set<string>()
+          present.set(categoryId, set)
+        }
+        for (const v of values) set.add(v)
+      }
+    }
+    const merged = new Map<string, string[]>()
+    for (const category of categories) {
+      // The vocabulary still comes first, so a value nothing carries yet is
+      // still offered, and the order someone arranged stays as they left it.
+      const extra = [...(present.get(category.id) ?? [])].filter((v) => !category.values.includes(v))
+      merged.set(category.id, extra.length > 0 ? [...category.values, ...extra] : category.values)
+    }
+    return merged
+  }, [categories, artworks])
+
   const matching = useMemo(() => {
     // Filter by special filters (date, geo) — these are ANDed together
     let filtered = artworks
@@ -156,10 +184,11 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
 
       <div className="flex flex-col gap-3">
         {categories
-          .filter((cat) => cat.values.length > 0)
+          .filter((cat) => (valuesByCategory.get(cat.id)?.length ?? 0) > 0)
           .map((category) => {
+            const values = valuesByCategory.get(category.id) ?? category.values
             const type = getCategoryType(category.id)
-            const isHighCard = isHighCardinality(category)
+            const isHighCard = isHighCardinality({ ...category, values })
             const isExpanded = expandedCategories.has(category.id)
             const categorySelected = Array.from(selected).filter((k) => k.startsWith(`${category.id}:`))
 
@@ -182,7 +211,7 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
                   {type === 'date' && (
                     <DateRangeFilter
                       categoryId={category.id}
-                      values={category.values}
+                      values={values}
                       onSelectionChange={(selected) => handleDateFilterChange(category.id, selected)}
                     />
                   )}
@@ -190,14 +219,14 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
                   {type === 'geo' && (
                     <GeoFilter
                       categoryId={category.id}
-                      values={category.values}
+                      values={values}
                       onSelectionChange={(selected) => handleGeoFilterChange(category.id, selected)}
                     />
                   )}
 
                   {type === 'regular' && (
                     <div className="flex flex-wrap gap-2">
-                      {category.values.map((value) => {
+                      {values.map((value) => {
                         const active = selected.has(`${category.id}:${value}`)
                         return (
                           <button
@@ -213,7 +242,7 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
                           </button>
                         )
                       })}
-                      {category.values.length === 0 && <span className="text-xs text-zinc-400">No values defined.</span>}
+                      {values.length === 0 && <span className="text-xs text-zinc-400">No values defined.</span>}
                     </div>
                   )}
                 </>
@@ -222,7 +251,7 @@ export function TagFilterBrowser({ categories, artworks }: { categories: Categor
               {isHighCard && !isExpanded && (
                 <p className="text-xs text-zinc-400">
                   {categorySelected.length === 0
-                    ? `Click to expand (${category.values.length} values)`
+                    ? `Click to expand (${values.length} values)`
                     : `Showing ${categorySelected.length} selected`}
                 </p>
               )}
