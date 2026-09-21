@@ -166,6 +166,13 @@ export function BatchVisionClassifyBrowser({
         These are one machine&rsquo;s impressions of a picture — worth reviewing rather than trusting. Pause any
         time; it resumes where it stopped.
       </p>
+      {/* The grid below shows only the chosen folder's own pictures, which
+          made a run over a tree of month/day folders look like it would do
+          nothing at all. */}
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        A run covers the folder you choose <strong>and every folder below it</strong>, however deep — not only the
+        pictures listed here.
+      </p>
 
       {location === null ? (
         <div className="w-full rounded-lg border border-zinc-200 dark:border-zinc-800">

@@ -102,6 +102,44 @@ export async function listFolder(
   return data
 }
 
+/**
+ * Every file beneath a folder, keeping each entry's full properties (dates,
+ * state, hash) — unlike walkTree, which reduces them to paths and hashes for
+ * comparing content.
+ *
+ * Views that list "this folder" need this once a folder holds subfolders
+ * rather than pictures, which is how copied-in photos land: a month folder
+ * per month, a day folder per day, and nothing directly inside either.
+ */
+export async function listFolderTree(
+  loc: MountpointRef,
+  rootPath: string,
+  opts?: { concurrency?: number; onProgress?: (folders: number, files: number) => void }
+): Promise<{ files: JottaEntry[]; folders: number }> {
+  const concurrency = opts?.concurrency ?? 4
+  const files: JottaEntry[] = []
+  const queue = [rootPath]
+  let folders = 0
+
+  async function worker() {
+    for (;;) {
+      const folder = queue.shift()
+      if (folder === undefined) return
+      const listing = await listFolder(loc, folder)
+      files.push(...listing.files)
+      for (const sub of listing.folders) queue.push(sub.path)
+      folders++
+      opts?.onProgress?.(folders, files.length)
+    }
+  }
+  // Workers stop when the queue runs dry, but subfolders are found mid-walk,
+  // so rounds keep starting until one finds nothing left to visit.
+  while (queue.length > 0) {
+    await Promise.all(Array.from({ length: concurrency }, worker))
+  }
+  return { files, folders }
+}
+
 export async function createFolder(loc: MountpointRef, path: string): Promise<JottaFolderListing> {
   const res = await fetch('/api/folders', {
     method: 'POST',

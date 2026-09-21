@@ -1,7 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { listFolder, jottaTime, type MountpointRef, type JottaFolderListing, type JottaEntry } from '@/lib/api'
+import {
+  listFolder,
+  listFolderTree,
+  jottaTime,
+  type MountpointRef,
+  type JottaFolderListing,
+  type JottaEntry,
+} from '@/lib/api'
 import { LocationPicker } from './LocationPicker'
 import { Thumbnail } from './Thumbnail'
 import { SubfolderList } from './SubfolderList'
@@ -101,6 +108,19 @@ const LARGE_CATEGORY_THRESHOLD = 10
 // instead — lazy loading already kept the images off the wire, but the DOM
 // itself was the cost on a phone.
 const FILES_PER_PAGE = 100
+const SUBFOLDERS_KEY = 'jao.describe.includeSubfolders'
+
+// Read once, when this module first loads in the browser, rather than in an
+// effect that would re-render the whole grid a moment after it appears.
+// Server-side there's no storage and no grid to render, so the default holds.
+const rememberedSubfolders = (() => {
+  try {
+    return typeof localStorage === 'undefined' || localStorage.getItem(SUBFOLDERS_KEY) !== '0'
+  } catch {
+    // Private browsing, or storage turned off.
+    return true
+  }
+})()
 
 // Rows in the Enhanced from picker. Each carries a thumbnail, so this is a
 // limit on images fetched to fill a list, not on what can be found — what's
@@ -184,6 +204,49 @@ export function TagAssignBrowser({
   // the hash actually stored.
   const [derivedSearch, setDerivedSearch] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(FILES_PER_PAGE)
+  // Photos copied in from elsewhere arrive in a month folder, then a day
+  // folder, with nothing directly in either — so a folder-only grid shows an
+  // empty folder while holding a year's work. Remembered, because whichever
+  // way someone keeps their pictures doesn't change from visit to visit.
+  const [includeSubfolders, setIncludeSubfolders] = useState(rememberedSubfolders)
+  // Tagged with the folder it was gathered for, so a stale tree from the
+  // previous folder is simply not used rather than having to be cleared —
+  // clearing it would mean setting state from inside the effect.
+  const [subtree, setSubtree] = useState<{ key: string; files: JottaEntry[]; folders: number } | null>(null)
+  const [subtreeProgress, setSubtreeProgress] = useState<{ key: string; folders: number } | null>(null)
+  const subtreeKey = location ? `${location.device}/${location.mountpoint}/${path}` : ''
+
+  function changeIncludeSubfolders(next: boolean) {
+    setIncludeSubfolders(next)
+    try {
+      localStorage.setItem(SUBFOLDERS_KEY, next ? '1' : '0')
+    } catch {
+      // Not worth failing the click over.
+    }
+  }
+
+  useEffect(() => {
+    if (!location || !includeSubfolders) return
+    let ignore = false
+    const key = subtreeKey
+    listFolderTree(location, path, {
+      onProgress: (folders) => {
+        if (!ignore) setSubtreeProgress({ key, folders })
+      },
+    })
+      .then((tree) => {
+        if (!ignore) setSubtree({ key, ...tree })
+      })
+      .catch((err) => {
+        if (!ignore) {
+          setListingError(err instanceof Error ? err.message : 'Failed to load the folders below this one.')
+        }
+      })
+    return () => {
+      ignore = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- subtreeKey is derived from location/path
+  }, [location, path, includeSubfolders])
 
   useEffect(() => {
     if (!location) return
@@ -203,9 +266,18 @@ export function TagAssignBrowser({
     }
   }, [location, path])
 
+  // Everything the grid works from: this folder alone, or everything beneath
+  // it while the subtree is still being gathered and once it arrives.
+  const folderTree = subtree?.key === subtreeKey ? subtree : null
+  const treeProgress = subtreeProgress?.key === subtreeKey ? subtreeProgress.folders : null
+  const allFiles = useMemo(
+    () => (includeSubfolders && folderTree ? folderTree.files : listing?.files ?? []),
+    [includeSubfolders, folderTree, listing]
+  )
+
   useEffect(() => {
     setVisibleCount(FILES_PER_PAGE)
-  }, [listing, sort, fileSearch])
+  }, [allFiles, sort, fileSearch])
 
   // A search typed in one folder shouldn't silently hide most of the next.
   useEffect(() => {
@@ -235,7 +307,11 @@ export function TagAssignBrowser({
     // photo's content hash, not just its own — the same reasoning as the
     // batch importer: a sidecar can only pair with one of a set of
     // duplicate filenames, and dedupe may have kept a different one.
-    listFolder(location, path, { includeDeleted: true })
+    // The picture's own folder, which is not necessarily the one picked: the
+    // grid can span everything below it, and a sidecar only ever sits beside
+    // its own photo.
+    const entryFolder = entry.path.slice(0, entry.path.lastIndexOf('/'))
+    listFolder(location, entryFolder, { includeDeleted: true })
       .then(async (extendedListing) => {
         const namesToTry = entry.md5
           ? [...new Set(extendedListing.files.filter((f) => f.md5 === entry.md5).map((f) => f.name))]
@@ -432,7 +508,7 @@ export function TagAssignBrowser({
   // artwork, and a sidecar match against every sibling file — hoisted into
   // maps built once. Both were quadratic against folder size on each render.
   const visibleFiles = useMemo(() => {
-    const files = listing?.files ?? []
+    const files = allFiles
     const query = fileSearch.trim().toLowerCase()
     return sortFiles(
       files
@@ -451,7 +527,7 @@ export function TagAssignBrowser({
       titleFor
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dateOf and titleFor are derived from dateByMd5/tagsByMd5
-  }, [listing, sort, dateByMd5, tagsByMd5, fileSearch])
+  }, [allFiles, sort, dateByMd5, tagsByMd5, fileSearch])
 
   // Suggestions for the Enhanced from picker: this folder's pictures, minus
   // the piece being edited, matched on filename or title. Capped because the
@@ -510,14 +586,26 @@ export function TagAssignBrowser({
     return counts
   }, [tagsByMd5])
 
+  // A sidecar only belongs to a picture in its own folder, so the search for
+  // one is kept within each folder even when the grid spans a whole tree.
   const namesWithSidecar = useMemo(() => {
-    const files = listing?.files ?? []
+    const byFolder = new Map<string, JottaEntry[]>()
+    for (const f of allFiles) {
+      const dir = f.path.slice(0, f.path.lastIndexOf('/'))
+      const siblings = byFolder.get(dir)
+      if (siblings) siblings.push(f)
+      else byFolder.set(dir, [f])
+    }
     const found = new Set<string>()
-    for (const f of files) {
-      if (f.md5 && !f.name.toLowerCase().endsWith('.json') && findMetadataSidecar(files, f.name)) found.add(f.name)
+    for (const siblings of byFolder.values()) {
+      for (const f of siblings) {
+        if (f.md5 && !f.name.toLowerCase().endsWith('.json') && findMetadataSidecar(siblings, f.name)) {
+          found.add(f.path)
+        }
+      }
     }
     return found
-  }, [listing])
+  }, [allFiles])
 
   // Stored as the original's content hash so renaming it doesn't break the
   // link, resolved to its title — or failing that its filename — for display.
@@ -526,20 +614,20 @@ export function TagAssignBrowser({
     const known = artworkByMd5.get(md5)
     const title = titleFromTags(known?.tags, titleCategoryId)
     if (title) return title
-    const inFolder = listing?.files.find((f) => f.md5 === md5)
+    const inFolder = allFiles.find((f) => f.md5 === md5)
     return inFolder?.name ?? known?.path.split('/').pop() ?? md5
   }
 
   // The linked original as a file we can show: in this folder if it's here,
   // otherwise wherever the tag store last saw it.
   function originalFor(value: string): { path: string; name: string } | null {
-    const here = listing?.files.find((f) => f.md5 === value)
+    const here = allFiles.find((f) => f.md5 === value)
     if (here) return { path: here.path, name: here.name }
     const known = artworkByMd5.get(value)
     if (known) return { path: known.path, name: known.path.split('/').pop() ?? value }
     // Not a hash: a name typed by hand, or a link made before hashes were
     // stored. Still worth showing if the folder has a file by that name.
-    const named = listing?.files.find((f) => f.name === value || labelFor(f) === value)
+    const named = allFiles.find((f) => f.name === value || labelFor(f) === value)
     if (named) return { path: named.path, name: named.name }
     return null
   }
@@ -559,13 +647,19 @@ export function TagAssignBrowser({
     openEditorRef.current = openEditor
   })
 
+  const spansFolders = includeSubfolders && (folderTree?.folders ?? 0) > 1
+
   const fileGrid = useMemo(() => {
     if (!location) return null
     return (
       <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {visibleFiles.slice(0, visibleCount).map((f) => {
           const tagCount = (f.md5 && tagCountByMd5.get(f.md5)) || 0
-          const hasMetadata = namesWithSidecar.has(f.name)
+          const hasMetadata = namesWithSidecar.has(f.path)
+          // Where a tile can come from any folder below this one, the folder
+          // it's actually in is the difference between two identical-looking
+          // pictures.
+          const folder = f.path.split('/').filter(Boolean).slice(-2, -1)[0]
           return (
             <li key={f.path}>
               <button
@@ -597,6 +691,11 @@ export function TagAssignBrowser({
                 >
                   {labelFor(f)}
                 </span>
+                {spansFolders && folder && (
+                  <span className="w-full truncate text-[10px] text-zinc-400" title={f.path}>
+                    in {folder}
+                  </span>
+                )}
                 {tagCount > 0 && (
                   <span className="text-xs text-indigo-600 dark:text-indigo-400">
                     {tagCount} tag{tagCount === 1 ? '' : 's'}
@@ -617,6 +716,7 @@ export function TagAssignBrowser({
     namesWithSidecar,
     tagsByMd5,
     titleCategoryId,
+    spansFolders,
   ])
 
   const crumbs = segments(path)
@@ -668,7 +768,26 @@ export function TagAssignBrowser({
         <SubfolderList folders={listing.folders} onOpen={(name) => setPath([...crumbs, name].join('/'))} />
       )}
 
-      {listing && listing.files.filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json')).length > 0 && (
+      <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+        <input
+          type="checkbox"
+          checked={includeSubfolders}
+          onChange={(e) => changeIncludeSubfolders(e.target.checked)}
+          className="h-3.5 w-3.5"
+        />
+        Include everything in the folders below
+        {includeSubfolders && !folderTree && (
+          <span className="text-zinc-400">— reading {treeProgress ?? 0} folders…</span>
+        )}
+        {includeSubfolders && folderTree && folderTree.folders > 1 && (
+          <span className="text-zinc-400">
+            — {allFiles.filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json')).length.toLocaleString()}{' '}
+            pictures across {folderTree.folders.toLocaleString()} folders
+          </span>
+        )}
+      </label>
+
+      {listing && allFiles.filter((f) => f.md5 && !f.name.toLowerCase().endsWith('.json')).length > 0 && (
         <>
         {/* Matched against the title first — the tiles are labelled with it,
             so searching for what you can see is the least surprising thing
