@@ -271,8 +271,8 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
           {/* {' '} rather than a plain space: a text chunk that wraps onto the
               next source line has its leading space trimmed away, which is how
               this came to read "5,665 picturesset aside". */}
-          {setAside.toLocaleString()} picture{setAside === 1 ? '' : 's'}{' '}
-          examined and found not to be your work — left where they are, and not offered again.{' '}
+          {setAside.toLocaleString()} photo{setAside === 1 ? '' : 's'} found. Left {setAside === 1 ? 'it' : 'them'}{' '}
+          in {config?.source ? label(config.source) : 'the photo folder'}.{' '}
           <button
             onClick={async () => {
               setForgetting(true)
