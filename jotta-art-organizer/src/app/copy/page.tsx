@@ -249,9 +249,17 @@ export default function CopyPage() {
     // described yet is one the catalogue can't find at all, and leaving that
     // to a separate manual run is how a folder of photos goes missing from
     // Find while sitting plainly in Jottacloud.
-    const copiedPaths = plan.toCopy
-      .filter((f) => !failed.some((x) => x.relPath === f.relPath))
-      .map((f) => joinPath(destination.path, f.relPath))
+    const arrived = plan.toCopy.filter((f) => !failed.some((x) => x.relPath === f.relPath))
+    const copiedPaths = arrived.map((f) => joinPath(destination.path, f.relPath))
+    // Where each came from, so a picture whose Google Photos sidecar stayed
+    // behind — which a move does, and a copy of part of a folder can too —
+    // is still described from what that sidecar knows.
+    const cameFrom = new Map(
+      arrived.map((f) => [
+        joinPath(destination.path, f.relPath),
+        { device: source.loc.device, mountpoint: source.loc.mountpoint, path: f.absPath },
+      ])
+    )
     if (session?.authenticated && session.metadataLocation && copiedPaths.length > 0) {
       setDescribing({ done: 0, total: copiedPaths.length })
       try {
@@ -260,7 +268,7 @@ export default function CopyPage() {
           destination.loc,
           destination.path,
           copiedPaths,
-          { onProgress: (done, total) => setDescribing({ done, total }) }
+          { onProgress: (done, total) => setDescribing({ done, total }), cameFrom }
         )
         setResult({ copied, failed, removed, removeFailed, described })
       } catch (err) {

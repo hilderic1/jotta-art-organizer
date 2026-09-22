@@ -48,12 +48,37 @@ export async function describeArrivedFiles(
   loc: MountpointRef,
   rootPath: string,
   paths: string[],
-  opts?: { onProgress?: (done: number, total: number) => void }
+  opts?: {
+    onProgress?: (done: number, total: number) => void
+    /** Where each arrival came from. A Google Photos export keeps a picture's
+     *  metadata in a sidecar file beside it, and moving the picture leaves
+     *  that sidecar behind — so the folder it came out of is searched too,
+     *  and a piece taken out of an export keeps what the export knew. */
+    cameFrom?: Map<string, { device: string; mountpoint: string; path: string }>
+  }
 ): Promise<AutoDescribeResult> {
   if (paths.length === 0) return { described: 0, unchanged: 0, failed: 0 }
 
   const wanted = new Set(paths)
   const folders = [...new Set(paths.map(folderOf))]
+
+  // Listed once each and shared: several arrivals usually come out of one
+  // folder, and this is a request apiece.
+  const origins = new Map<string, JottaEntry[]>()
+  async function originSiblings(from: { device: string; mountpoint: string; path: string }) {
+    const folder = folderOf(from.path)
+    const key = `${from.device}/${from.mountpoint}/${folder}`
+    const held = origins.get(key)
+    if (held) return held
+    const listing = await listFolder(
+      { device: from.device, mountpoint: from.mountpoint },
+      folder,
+      { includeDeleted: true }
+    ).catch(() => null)
+    const files = listing?.files ?? []
+    origins.set(key, files)
+    return files
+  }
 
   // One listing per folder, shared by every file in it: the sidecar search
   // needs a picture's siblings, and deleted ones count — a sidecar can pair
@@ -63,8 +88,21 @@ export async function describeArrivedFiles(
     const listing = await listFolder(loc, folder, { includeDeleted: true })
     for (const file of listing.files) {
       if (file.deleted || !file.md5 || !wanted.has(file.path)) continue
-      const namesToTry = [...new Set(listing.files.filter((f) => f.md5 === file.md5).map((f) => f.name))]
-      groups.push({ liveEntry: file, namesToTry, siblings: listing.files })
+      const names = new Set(listing.files.filter((f) => f.md5 === file.md5).map((f) => f.name))
+      let siblings = listing.files
+
+      const from = opts?.cameFrom?.get(file.path)
+      // Same mountpoint only: a sidecar is read back by its path, and that
+      // path is resolved against the destination. Borrowing siblings from
+      // another mountpoint would read whatever sits at that path there.
+      if (from && from.device === loc.device && from.mountpoint === loc.mountpoint) {
+        // The name it had before it was filed counts too: a sidecar pairs
+        // with a filename, and filing can rename to avoid a collision.
+        names.add(from.path.split('/').pop() ?? '')
+        siblings = [...siblings, ...(await originSiblings(from))]
+      }
+
+      groups.push({ liveEntry: file, namesToTry: [...names].filter(Boolean), siblings })
     }
   }
 

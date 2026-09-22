@@ -218,7 +218,7 @@ export function IntakeBanner({
             destLoc,
             config.dest.path,
             result.copiedPaths,
-            { onProgress: (done, total) => setDescribing({ done, total }) }
+            { onProgress: (done, total) => setDescribing({ done, total }), cameFrom: result.cameFrom }
           )
           describedNow = outcome.described
           setDescribed(outcome.described)

@@ -542,6 +542,11 @@ export type IntakeResult = {
   failed: { name: string; error: string }[]
   /** Where each copy landed, so the caller can describe them straight away. */
   copiedPaths: string[]
+  /** And where each came from, keyed by where it landed. A Google Photos
+   *  export keeps a picture's metadata in a sidecar beside it, which filing
+   *  leaves behind — so describing needs to know where the picture used to
+   *  be, or a piece taken out of an export arrives knowing nothing. */
+  cameFrom: Map<string, { device: string; mountpoint: string; path: string }>
   /** Originals taken out of the photo folder. Zero unless moving. */
   removed: number
   /** Copied, but the original stayed put — reported apart from a failed copy
@@ -567,6 +572,7 @@ export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): 
   )
 
   const copiedPaths: string[] = []
+  const cameFrom = new Map<string, { device: string; mountpoint: string; path: string }>()
   const removeFailed: IntakeResult['removeFailed'] = []
   let removed = 0
   // Where each piece of content landed this run. The photo folder can hold
@@ -607,6 +613,7 @@ export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): 
       existing.add(name)
       landedByMd5.set(match.md5, destPath)
       copiedPaths.push(destPath)
+      cameFrom.set(destPath, { device: match.device, mountpoint: match.mountpoint, path: match.path })
       copied++
     } catch (err) {
       failed.push({ name: match.name, error: err instanceof Error ? err.message : 'Copy failed.' })
@@ -628,7 +635,7 @@ export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): 
     }
   }
 
-  return { copied, failed, copiedPaths, removed, removeFailed }
+  return { copied, failed, copiedPaths, cameFrom, removed, removeFailed }
 }
 
 /** A folder named well enough to delete: which mountpoint, and where in it.
