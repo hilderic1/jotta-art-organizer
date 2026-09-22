@@ -19,7 +19,7 @@
 // sidecar's own capture time must agree with what the picture records about
 // itself, which is the same test the Takeout check uses to vouch for a photo
 // it cannot pair by name.
-import { listFolder, walkTree, type JottaEntry, type MountpointRef } from '@/lib/api'
+import { listFolder, walkTree, deleteFile, type JottaEntry, type MountpointRef } from '@/lib/api'
 import {
   loadMetadataSidecar,
   deriveTagsFromMetadata,
@@ -81,6 +81,41 @@ export type ReuniteReport = {
   unmatched: number
   matched: Reunion[]
   described: number
+  /** The sidecars whose contents are now in the catalogue. Only these are
+   *  safe to clear out: everything else here still holds the only copy of
+   *  something. */
+  describedSidecars: string[]
+}
+
+/**
+ * Removes sidecars whose contents have been saved. They go to Jottacloud's
+ * trash like anything else this app removes.
+ *
+ * Deliberately takes the paths rather than working them out again: the only
+ * ones that may go are the ones a run has just written, and asking the
+ * caller to hand them back is what keeps that true.
+ */
+export async function removeSidecars(
+  loc: MountpointRef,
+  paths: string[],
+  opts?: { onProgress?: (done: number, total: number) => void }
+): Promise<{ removed: number; failed: { name: string; error: string }[] }> {
+  const failed: { name: string; error: string }[] = []
+  let removed = 0
+  let done = 0
+  for (const path of paths) {
+    try {
+      await deleteFile(loc, path)
+      removed++
+    } catch (err) {
+      failed.push({
+        name: path.split('/').pop() ?? path,
+        error: err instanceof Error ? err.message : 'Could not remove it.',
+      })
+    }
+    opts?.onProgress?.(++done, paths.length)
+  }
+  return { removed, failed }
 }
 
 const READ_CONCURRENCY = 6
@@ -158,6 +193,7 @@ export async function reuniteOrphans(
     unmatched: 0,
     matched: [],
     described: 0,
+    describedSidecars: [],
   }
   if (orphans.length === 0) return report
 
@@ -253,6 +289,7 @@ export async function reuniteOrphans(
       tags,
     })
     report.described++
+    report.describedSidecars.push(reunion.orphan.sidecar.path)
   }
 
   if (upsert.length > 0) await saveArtworkChanges(metadataLoc, categories, { upsert })

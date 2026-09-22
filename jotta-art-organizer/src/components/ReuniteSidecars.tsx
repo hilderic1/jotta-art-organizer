@@ -3,7 +3,13 @@
 import { useRef, useState } from 'react'
 import type { MountpointRef } from '@/lib/api'
 import { LocationPicker } from './LocationPicker'
-import { findOrphanSidecars, reuniteOrphans, type Orphan, type ReuniteReport } from '@/lib/reunite'
+import {
+  findOrphanSidecars,
+  reuniteOrphans,
+  removeSidecars,
+  type Orphan,
+  type ReuniteReport,
+} from '@/lib/reunite'
 
 /**
  * Puts back together what filing separated: a Google Photos sidecar whose
@@ -27,6 +33,8 @@ export function ReuniteSidecars({
   const [picking, setPicking] = useState(false)
   const [report, setReport] = useState<ReuniteReport | null>(null)
   const [written, setWritten] = useState(false)
+  const [showOrphans, setShowOrphans] = useState(false)
+  const [cleared, setCleared] = useState<number | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const stopper = useRef<AbortController | null>(null)
@@ -81,6 +89,28 @@ export function ReuniteSidecars({
     }
   }
 
+  // Only the ones whose contents are now in the catalogue. An orphan that
+  // couldn't be matched still holds the only copy of what it knows, and
+  // removing it would throw that away for good.
+  async function clearRead() {
+    if (!report || report.describedSidecars.length === 0) return
+    setBusy('Removing sidecars…')
+    setError(null)
+    try {
+      const out = await removeSidecars(exportLoc, report.describedSidecars, {
+        onProgress: (done, total) => setBusy(`Removing — ${done} of ${total}`),
+      })
+      setCleared(out.removed)
+      if (out.failed.length > 0) {
+        setError(`${out.failed.length} could not be removed: ${out.failed[0].error}`)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove them.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const confirmed = report?.matched.filter((m) => m.confirmed) ?? []
   const doubtful = report?.matched.filter((m) => !m.confirmed) ?? []
 
@@ -115,8 +145,25 @@ export function ReuniteSidecars({
           <p>
             <strong>{orphans.length.toLocaleString()}</strong> sidecar
             {orphans.length === 1 ? '' : 's'} whose picture is no longer beside{' '}
-            {orphans.length === 1 ? 'it' : 'them'}.
+            {orphans.length === 1 ? 'it' : 'them'}.{' '}
+            <button
+              onClick={() => setShowOrphans((v) => !v)}
+              className="text-indigo-600 hover:underline dark:text-indigo-400"
+            >
+              {showOrphans ? 'Hide them' : 'Which ones?'}
+            </button>
           </p>
+          {/* Named, because "a bunch of JSON files" is exactly the problem —
+              there is no way to tell an orphan from a paired one by looking
+              at the folder, and these are the ones that are orphans. */}
+          {showOrphans && (
+            <ul className="flex max-h-48 flex-col gap-0.5 overflow-y-auto font-mono text-[11px] text-zinc-500">
+              {orphans.slice(0, 500).map((o) => (
+                <li key={o.sidecar.path}>{o.sidecar.path}</li>
+              ))}
+              {orphans.length > 500 && <li>…and {(orphans.length - 500).toLocaleString()} more</li>}
+            </ul>
+          )}
 
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-zinc-500">
@@ -173,6 +220,25 @@ export function ReuniteSidecars({
                 <strong>{report.described.toLocaleString()}</strong> picture
                 {report.described === 1 ? '' : 's'} described from their sidecars. Tags are held against
                 the picture&rsquo;s content, so every copy of it has them now.
+                {report.describedSidecars.length > 0 && !cleared && (
+                  <>
+                    {' '}
+                    Those {report.describedSidecars.length.toLocaleString()} sidecars have nothing left to
+                    say that isn&rsquo;t saved.{' '}
+                    <button
+                      onClick={clearRead}
+                      disabled={busy !== null}
+                      className="text-indigo-600 hover:underline disabled:opacity-50 dark:text-indigo-400"
+                    >
+                      Remove them from the export
+                    </button>
+                  </>
+                )}
+                {cleared !== null && (
+                  <span className="block">
+                    {cleared.toLocaleString()} removed — they are in Jottacloud&rsquo;s trash.
+                  </span>
+                )}
               </>
             ) : (
               <>
