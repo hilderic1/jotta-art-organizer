@@ -384,8 +384,10 @@ export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): 
   let copied = 0
 
   // Names collide across a camera roll — two exports a month apart can share
-  // one. Checked against what's actually in the folder, once, rather than
-  // trusting the name to be free.
+  // one, and the look goes through every folder under the source, so two
+  // pictures that never met can arrive here with the same name. Checked
+  // against what's actually in the folder, once, rather than trusting the
+  // name to be free.
   const existing = new Set(
     (await listFolder(destLoc, config.dest.path).catch(() => null))?.files.map((f) => f.name) ?? []
   )
@@ -393,15 +395,43 @@ export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): 
   const copiedPaths: string[] = []
   const removeFailed: IntakeResult['removeFailed'] = []
   let removed = 0
+  // Where each piece of content landed this run. The photo folder can hold
+  // the same picture in several places, and flattening them all into one
+  // destination would otherwise put the same image in it twice under two
+  // names — the very thing the rest of this app exists to clean up.
+  const landedByMd5 = new Map<string, string>()
 
   for (const match of matches) {
+    const already = landedByMd5.get(match.md5)
+    if (already) {
+      // Nothing to copy: this content is in the destination as of a moment
+      // ago. In move mode the spare copy still goes, because filed is filed
+      // however many copies of it the photo folder happened to hold.
+      if (config.mode === 'move') {
+        try {
+          await deleteFile(sourceLoc, match.path)
+          removed++
+        } catch (err) {
+          removeFailed.push({
+            name: match.name,
+            error: err instanceof Error ? err.message : 'Could not remove the original.',
+          })
+        }
+      }
+      continue
+    }
+
     const name = uniqueName(match.name, existing)
     try {
-      // Joined rather than interpolated: a destination at the root of a
+      // Always straight into the destination folder, never into anything
+      // below it: the source's own folders are a phone's filing, not hers,
+      // and the point of the artwork folder is that a piece is in it. Joined
+      // rather than interpolated because a destination at the root of a
       // mountpoint has an empty path, which would otherwise give "/name".
       const destPath = [config.dest.path, name].filter(Boolean).join('/')
       await copyFile(sourceLoc, match.path, destLoc, destPath)
       existing.add(name)
+      landedByMd5.set(match.md5, destPath)
       copiedPaths.push(destPath)
       copied++
     } catch (err) {
