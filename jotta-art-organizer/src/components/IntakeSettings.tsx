@@ -311,6 +311,10 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
               {checking ? 'Going through the photo folder…' : 'Check what has been left behind'}
             </button>
           ) : (
+            (() => {
+            // Folders the closer look found to hold files the walk can't see.
+            const blind = leftovers.samples.filter((s) => s.withoutHash > 0).length
+            return (
             <div className="mt-1 flex flex-col gap-2">
               <p className="text-zinc-500">
                 {leftovers.pictures.toLocaleString()} picture
@@ -324,7 +328,52 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
                   : 'Every decision is about a picture still in there.'}
               </p>
 
-              {leftovers.emptyFolders.length > 0 && (
+              {/* The folders themselves, because a count of them is not
+                  something anyone can check, and this one is a count of
+                  things about to be deleted. */}
+              {leftovers.samples.length > 0 && (
+                <div>
+                  <p className="text-zinc-500">
+                    {leftovers.emptyFoldersTotal <= leftovers.samples.length
+                      ? 'All of them:'
+                      : `The first ${leftovers.samples.length}, of ${leftovers.emptyFoldersTotal.toLocaleString()}:`}
+                  </p>
+                  <ul className="mt-1 flex flex-col gap-0.5 font-mono text-[11px]">
+                    {leftovers.samples.map((s) => (
+                      <li key={s.path} className="flex flex-wrap gap-x-2">
+                        <span className="text-zinc-600 dark:text-zinc-400">{s.path}</span>
+                        <span className={s.withoutHash > 0 ? 'text-red-600 dark:text-red-400' : 'text-zinc-400'}>
+                          {s.error
+                            ? s.error
+                            : s.withoutHash > 0
+                              ? `${s.withoutHash} file${s.withoutHash === 1 ? '' : 's'} this app cannot see`
+                              : [
+                                  `${s.entries} file${s.entries === 1 ? '' : 's'}`,
+                                  `${s.subfolders} folder${s.subfolders === 1 ? '' : 's'}`,
+                                  s.deleted > 0 ? `${s.deleted} in the trash` : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(', ')}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {blind > 0 ? (
+                // Held back rather than warned about. "Empty" is this app's
+                // reading of the folder, and the sample says that reading is
+                // wrong — removing hundreds of folders on a wrong reading is
+                // not something a confirmation box makes acceptable.
+                <p className="rounded border border-red-300 bg-red-50 p-2 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+                  {blind} of the {leftovers.samples.length} folders listed above hold files this app
+                  can&rsquo;t see — Jottacloud lists them, but without the checksum it reads. They are not
+                  empty, and nothing here will remove them. This needs fixing first; tell me what those
+                  folders hold.
+                </p>
+              ) : (
+                leftovers.emptyFolders.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2">
                   {confirmingFolders ? (
                     <>
@@ -354,6 +403,7 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
                     </button>
                   )}
                 </div>
+                )
               )}
 
               {leftovers.setAsideStale > 0 && (
@@ -372,6 +422,8 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
                 Check again
               </button>
             </div>
+            )
+            })()
           )}
         </div>
       )}

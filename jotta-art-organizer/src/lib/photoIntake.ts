@@ -551,7 +551,32 @@ export type Leftovers = {
   /** Set aside, but no longer in the photo folder at all — decisions about
    *  pictures that have since been moved or deleted. */
   setAsideStale: number
+  /** A sample of the empty folders, listed again one by one and reported
+   *  raw. "Empty" is this app's word for "the walk found no file with a
+   *  checksum beneath it", which is not the same as Jottacloud holding
+   *  nothing there — and the difference is the difference between tidying up
+   *  and throwing away photographs. */
+  samples: EmptyFolderSample[]
 }
+
+export type EmptyFolderSample = {
+  path: string
+  /** Live entries Jottacloud lists in it. */
+  entries: number
+  /** Live entries with no checksum: files this app's walk cannot see. Any
+   *  number here means "empty" is wrong and nothing should be removed. */
+  withoutHash: number
+  /** Entries Jottacloud is holding as deleted — already in the trash. */
+  deleted: number
+  subfolders: number
+  /** Why it couldn't be looked at, if it couldn't. */
+  error?: string
+}
+
+/** How many of the empty folders get a closer look. Each one is a request,
+ *  and twenty is enough to tell "emptied by moving" from "the walk is blind
+ *  to what's in there". */
+const SAMPLE_LIMIT = 20
 
 function parentOf(relPath: string): string {
   const cut = relPath.lastIndexOf('/')
@@ -600,13 +625,45 @@ export async function findLeftovers(
   let stale = 0
   for (const md5 of examined) if (!present.has(md5)) stale++
 
+  const fullPath = (rel: string) => [config.source.path, rel].filter(Boolean).join('/')
+
+  // Asked again, one at a time, and reported exactly as Jottacloud answers.
+  // The walk keeps only files it has a checksum for, so a folder full of
+  // pictures it can't read a checksum from looks empty to it — the one
+  // mistake in here that would cost photographs rather than tidy them.
+  const samples: EmptyFolderSample[] = []
+  for (const rel of empty.slice(0, SAMPLE_LIMIT)) {
+    const path = fullPath(rel)
+    try {
+      const listing = await listFolder(sourceLoc, path, { includeDeleted: true })
+      const live = listing.files.filter((f) => !f.deleted)
+      samples.push({
+        path,
+        entries: live.length,
+        withoutHash: live.filter((f) => !f.md5).length,
+        deleted: listing.files.length - live.length,
+        subfolders: listing.folders.filter((f) => !f.deleted).length,
+      })
+    } catch (err) {
+      samples.push({
+        path,
+        entries: 0,
+        withoutHash: 0,
+        deleted: 0,
+        subfolders: 0,
+        error: err instanceof Error ? err.message : 'Could not list it.',
+      })
+    }
+  }
+
   return {
-    emptyFolders: tops.map((rel) => [config.source.path, rel].filter(Boolean).join('/')),
+    emptyFolders: tops.map(fullPath),
     emptyFoldersTotal: empty.length,
     pictures: source.files.length,
     folders: source.folderRelPaths.length + 1,
     setAsideTotal: examined.size,
     setAsideStale: stale,
+    samples,
   }
 }
 
