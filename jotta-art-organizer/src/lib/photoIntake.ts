@@ -25,6 +25,7 @@ import { readArtworkMetadata, type ArtworkFileMetadata } from '@/lib/imageMetada
 const INTAKE_FOLDER = '.jotta-art-organizer'
 const CONFIG_FILENAME = 'intake.json'
 const EXAMINED_FILENAME = 'intake-examined.json'
+const LOG_FILENAME = 'intake-log.json'
 
 export type FolderRef = MountpointRef & { path: string }
 
@@ -63,6 +64,9 @@ export type IntakeScan = {
   /** Called off before it finished. What it had already read is kept, but
    *  what it found is not offered — half a look is not an answer. */
   stopped: boolean
+  /** The line written to the run log, so the screen can show what it did
+   *  without recounting it. Null when the look never got past the walk. */
+  logged: IntakeLogEntry | null
 }
 
 // PicsArt signs its work in several different places — the editing record it
@@ -108,6 +112,80 @@ export function artworkReason(meta: ArtworkFileMetadata | null): string | null {
   if (meta.credit && /\bai\b|generat/i.test(meta.credit)) return meta.credit
 
   return null
+}
+
+// What each run did, kept in the account rather than on the screen. The
+// banner is on the Catalogue's folder-picking screen and disappears the
+// moment a folder is chosen, so anything it says about a finished run is
+// gone a second later — and a run that copies, removes and describes is
+// exactly the sort of thing you want to be able to look up afterwards.
+export type IntakeLogEntry = {
+  at: string
+  kind: 'look' | 'file' | 'tidy'
+  /** Absent members didn't apply to that kind of run, rather than being zero. */
+  folders?: number
+  pictures?: number
+  alreadyFiled?: number
+  setAside?: number
+  read?: number
+  found?: number
+  remaining?: number
+  filed?: number
+  removed?: number
+  described?: number
+  failed?: number
+  stopped?: boolean
+}
+
+// Enough to answer "what happened last time?" without becoming a file that
+// grows forever in an account meant for pictures.
+const LOG_LIMIT = 25
+
+export async function loadIntakeLog(metadataLoc: MountpointRef): Promise<IntakeLogEntry[]> {
+  const stored = await readJsonFile<{ runs: IntakeLogEntry[] }>(
+    metadataLoc,
+    `${INTAKE_FOLDER}/${LOG_FILENAME}`
+  )
+  return stored?.runs ?? []
+}
+
+export async function appendIntakeLog(
+  metadataLoc: MountpointRef,
+  entry: IntakeLogEntry
+): Promise<IntakeLogEntry[]> {
+  const runs = [entry, ...(await loadIntakeLog(metadataLoc))].slice(0, LOG_LIMIT)
+  await writeJsonFile(metadataLoc, INTAKE_FOLDER, LOG_FILENAME, { runs })
+  return runs
+}
+
+/** One line per run, phrased here so the banner and Setup say the same thing. */
+export function summariseRun(entry: IntakeLogEntry): string {
+  if (entry.kind === 'look') {
+    const parts: string[] = []
+    if (entry.pictures != null && entry.folders != null) {
+      // The folder count is the point as much as the picture count: it's what
+      // shows the look went through everything below the folder, not just it.
+      parts.push(
+        `${entry.pictures.toLocaleString()} picture${entry.pictures === 1 ? '' : 's'} in ${entry.folders.toLocaleString()} folder${entry.folders === 1 ? '' : 's'}`
+      )
+    }
+    if (entry.alreadyFiled) parts.push(`${entry.alreadyFiled.toLocaleString()} already filed`)
+    if (entry.setAside) parts.push(`${entry.setAside.toLocaleString()} set aside before`)
+    if (entry.read != null) parts.push(`${entry.read.toLocaleString()} read`)
+    parts.push(`${(entry.found ?? 0).toLocaleString()} new to file`)
+    if (entry.remaining) parts.push(`${entry.remaining.toLocaleString()} left for next time`)
+    return `${entry.stopped ? 'Stopped early — ' : ''}${parts.join(', ')}`
+  }
+  if (entry.kind === 'file') {
+    const parts = [`${(entry.filed ?? 0).toLocaleString()} filed`]
+    if (entry.removed) parts.push(`${entry.removed.toLocaleString()} taken out of the photos`)
+    if (entry.described) parts.push(`${entry.described.toLocaleString()} described`)
+    if (entry.failed) parts.push(`${entry.failed.toLocaleString()} failed`)
+    return parts.join(', ')
+  }
+  const parts = [`${(entry.removed ?? 0).toLocaleString()} already-filed pictures taken out of the photos`]
+  if (entry.failed) parts.push(`${entry.failed.toLocaleString()} could not be removed`)
+  return parts.join(', ')
 }
 
 export async function loadIntakeConfig(metadataLoc: MountpointRef): Promise<IntakeConfig | null> {
@@ -179,12 +257,16 @@ export async function scanIntake(
   // Both walks come back partial when they were called off, and a partial
   // listing would name pictures as unfiled that simply weren't reached yet.
   if (opts?.signal?.aborted) {
-    return { matches: [], strays: [], remaining: 0, examined: 0, stopped: true }
+    return { matches: [], strays: [], remaining: 0, examined: 0, stopped: true, logged: null }
   }
 
   // Already filed, or already judged not to be hers. Content hashes, so a
   // renamed copy is still recognised as the same picture.
   const alreadyThere = new Set(dest.files.map((f) => f.md5))
+  // The rejected ones get added to `examined` as the run goes, so the count
+  // for the log is taken before that starts — otherwise this run's work would
+  // be reported as something earlier runs had already decided.
+  const examinedBefore = new Set(examined)
   const candidates = source.files.filter((f) => !alreadyThere.has(f.md5) && !examined.has(f.md5))
 
   // No header read needed to know these are hers: the same content is in the
@@ -246,8 +328,28 @@ export async function scanIntake(
     // Losing this costs a repeated scan, never a wrong result.
   })
 
+  // A stopped look is still worth recording — knowing it was called off is
+  // the difference between "nothing was found" and "nothing was looked at".
+  const entry: IntakeLogEntry = {
+    at: new Date().toISOString(),
+    kind: 'look',
+    // The root folder as well as everything under it: walkTree queues each
+    // subfolder it meets, so this is the whole tree, however deep.
+    folders: source.folderRelPaths.length + 1,
+    pictures: source.files.length,
+    alreadyFiled: source.files.filter((f) => alreadyThere.has(f.md5)).length,
+    setAside: source.files.filter((f) => examinedBefore.has(f.md5)).length,
+    read: done,
+    found: matches.length,
+    remaining: candidates.length - batch.length,
+    ...(opts?.signal?.aborted ? { stopped: true } : {}),
+  }
+  await appendIntakeLog(metadataLoc, entry).catch(() => {
+    // A missing line in the log is not worth failing a scan over.
+  })
+
   if (opts?.signal?.aborted) {
-    return { matches: [], strays: [], remaining: 0, examined: done, stopped: true }
+    return { matches: [], strays: [], remaining: 0, examined: done, stopped: true, logged: entry }
   }
 
   return {
@@ -256,6 +358,7 @@ export async function scanIntake(
     remaining: candidates.length - batch.length,
     examined: batch.length,
     stopped: false,
+    logged: entry,
   }
 }
 

@@ -10,8 +10,11 @@ import {
   fileIntake,
   rememberNotArtwork,
   removeStrays,
+  appendIntakeLog,
+  summariseRun,
   type IntakeConfig,
   type IntakeMatch,
+  type IntakeLogEntry,
 } from '@/lib/photoIntake'
 import { describeArrivedFiles } from '@/lib/autoDescribe'
 
@@ -21,6 +24,9 @@ import { describeArrivedFiles } from '@/lib/autoDescribe'
 // this, every return to that screen would set another full walk of both
 // folder trees going.
 let lookedThisVisit = false
+// What that look found, kept for the same reason: the screen it was reported
+// on is gone the moment a folder is chosen.
+let lastRun: IntakeLogEntry | null = null
 
 /**
  * Offers to file new PicsArt and AI-made pictures out of the iPad's backup.
@@ -34,6 +40,7 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
   const [config, setConfig] = useState<IntakeConfig | null>(null)
   const [scanning, setScanning] = useState(false)
   const [stopping, setStopping] = useState(false)
+  const [run, setRun] = useState<IntakeLogEntry | null>(lastRun)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [matches, setMatches] = useState<IntakeMatch[] | null>(null)
   const [strays, setStrays] = useState<IntakeMatch[]>([])
@@ -77,7 +84,9 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
             if (alive.current) setProgress({ done, total })
           },
         })
+        lastRun = scan.logged
         if (!alive.current) return
+        setRun(scan.logged)
         // Half a look is not an answer, so a stopped scan leaves the offer
         // empty rather than presenting what it happened to reach as the lot.
         if (scan.stopped) {
@@ -140,6 +149,19 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
     }
   }
 
+  // Written to the account, and kept on screen: the line is the receipt for
+  // work that copied, removed and described files, and the screen it appears
+  // on can be gone a moment later.
+  async function recordRun(entry: IntakeLogEntry) {
+    lastRun = entry
+    if (alive.current) setRun(entry)
+    try {
+      await appendIntakeLog(metadataLoc, entry)
+    } catch {
+      // A missing line in the log doesn't undo any of the work it describes.
+    }
+  }
+
   function toggle(md5: string) {
     setDeselected((prev) => {
       const next = new Set(prev)
@@ -159,6 +181,7 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
     setFiling(true)
     setConfirmingMove(false)
     setError(null)
+    let describedNow = 0
     try {
       const result = await fileIntake(config, chosen)
       setFiled(result.copied)
@@ -184,6 +207,7 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
             result.copiedPaths,
             { onProgress: (done, total) => setDescribing({ done, total }) }
           )
+          describedNow = outcome.described
           setDescribed(outcome.described)
         } catch {
           // The copies are safely in place; describing them is what the
@@ -193,6 +217,14 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
           setDescribing(null)
         }
       }
+      await recordRun({
+        at: new Date().toISOString(),
+        kind: 'file',
+        filed: result.copied,
+        removed: result.removed,
+        described: describedNow,
+        failed: result.failed.length + result.removeFailed.length,
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Filing failed.')
     } finally {
@@ -214,6 +246,12 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
       })
       setTidied(result.removed)
       setStrays([])
+      await recordRun({
+        at: new Date().toISOString(),
+        kind: 'tidy',
+        removed: result.removed,
+        failed: result.failed.length,
+      })
       if (result.failed.length > 0) {
         setError(`${result.failed.length} could not be removed: ${result.failed[0].error}`)
       } else if (result.unconfirmed > 0) {
@@ -250,7 +288,32 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
     </button>
   )
 
-  if (dismissed) return <p className="text-xs text-zinc-400">{lookAgain}</p>
+  // What the last run did, rather than a button with nothing to say. Without
+  // this a finished look is indistinguishable from one that never ran.
+  const lastRunLine = run && (
+    <span className="text-xs text-zinc-500">
+      {/* Named in full for a look, because "did it go into the subfolders?"
+          is otherwise unanswerable from the screen — and the answer is yes. */}
+      {run.kind === 'look'
+        ? `Looked through ${sourceName} and everything below it`
+        : run.kind === 'file'
+          ? 'Last filing'
+          : 'Last tidy'}{' '}
+      — {summariseRun(run)}.{' '}
+      <span className="text-zinc-400">
+        {new Date(run.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+      </span>
+    </span>
+  )
+
+  if (dismissed) {
+    return (
+      <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-zinc-400">
+        {lastRunLine}
+        {lookAgain}
+      </p>
+    )
+  }
 
   // Quiet while it works: this runs on every start, and a spinner shouting
   // about a background errand every time you open the app would wear thin.
@@ -382,7 +445,14 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
     )
   }
 
-  if (nothingNew) return <p className="text-xs text-zinc-400">{lookAgain}</p>
+  if (nothingNew) {
+    return (
+      <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-zinc-400">
+        {lastRunLine}
+        {lookAgain}
+      </p>
+    )
+  }
 
   const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
   const chosenCount = matches.filter((m) => !deselected.has(m.md5)).length

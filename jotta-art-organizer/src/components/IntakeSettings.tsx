@@ -8,8 +8,11 @@ import {
   saveIntakeConfig,
   countNotArtwork,
   forgetNotArtwork,
+  loadIntakeLog,
+  summariseRun,
   type FolderRef,
   type IntakeConfig,
+  type IntakeLogEntry,
 } from '@/lib/photoIntake'
 
 function label(folder: FolderRef | null): string {
@@ -31,6 +34,8 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
   const [error, setError] = useState<string | null>(null)
   const [setAside, setSetAside] = useState(0)
   const [forgetting, setForgetting] = useState(false)
+  const [runs, setRuns] = useState<IntakeLogEntry[]>([])
+  const [showRuns, setShowRuns] = useState(false)
 
   useEffect(() => {
     let ignore = false
@@ -43,6 +48,10 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
       .then(() => countNotArtwork(metadataLoc))
       .then((count) => {
         if (!ignore) setSetAside(count)
+      })
+      .then(() => loadIntakeLog(metadataLoc))
+      .then((entries) => {
+        if (!ignore) setRuns(entries)
       })
       .catch(() => {
         if (!ignore) setLoaded(true)
@@ -200,6 +209,33 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
             {forgetting ? 'Clearing…' : 'Look at them again'}
           </button>
         </p>
+      )}
+
+      {/* Every run leaves a line here. The banner that reports a run lives on
+          a screen you leave immediately afterwards, so without this there was
+          no way to see what a run had done once it was over. */}
+      {runs.length > 0 && (
+        <div className="mt-3 text-xs">
+          <button
+            onClick={() => setShowRuns((v) => !v)}
+            className="text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            {showRuns ? 'Hide what it has done' : `What it has done (${runs.length})`}
+          </button>
+          {showRuns && (
+            <ul className="mt-2 flex flex-col gap-1">
+              {runs.map((entry) => (
+                <li key={entry.at} className="flex flex-wrap gap-x-2 text-zinc-500">
+                  <span className="text-zinc-400">{new Date(entry.at).toLocaleString()}</span>
+                  <span>
+                    {entry.kind === 'look' ? 'Looked' : entry.kind === 'file' ? 'Filed' : 'Tidied'} —{' '}
+                    {summariseRun(entry)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {saving && <p className="mt-2 text-xs text-zinc-400">Saving…</p>}
