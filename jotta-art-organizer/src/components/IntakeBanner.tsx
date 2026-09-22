@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MountpointRef } from '@/lib/api'
 import { Thumbnail } from './Thumbnail'
 import { ImageViewer } from './ImageViewer'
@@ -9,6 +9,7 @@ import {
   scanIntake,
   fileIntake,
   rememberNotArtwork,
+  removeStrays,
   type IntakeConfig,
   type IntakeMatch,
 } from '@/lib/photoIntake'
@@ -27,6 +28,7 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
   const [scanning, setScanning] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [matches, setMatches] = useState<IntakeMatch[] | null>(null)
+  const [strays, setStrays] = useState<IntakeMatch[]>([])
   const [remaining, setRemaining] = useState(0)
   const [showList, setShowList] = useState(false)
   // Held as what's been turned *off*, so a match found by a later scan
@@ -34,52 +36,70 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
   const [deselected, setDeselected] = useState<Set<string>>(new Set())
   const [viewing, setViewing] = useState<IntakeMatch | null>(null)
   const [filing, setFiling] = useState(false)
+  const [confirmingMove, setConfirmingMove] = useState(false)
+  const [confirmingStrays, setConfirmingStrays] = useState(false)
+  const [tidying, setTidying] = useState<{ done: number; total: number } | null>(null)
+  const [tidied, setTidied] = useState<number | null>(null)
   const [describing, setDescribing] = useState<{ done: number; total: number } | null>(null)
   const [filed, setFiled] = useState<number | null>(null)
+  const [removedCount, setRemovedCount] = useState(0)
   const [described, setDescribed] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [dismissed, setDismissed] = useState(false)
   // React runs effects twice in development; a scan is expensive enough that
   // doing it once matters even there.
   const started = useRef(false)
+  const alive = useRef(true)
 
-  useEffect(() => {
-    if (started.current) return
-    started.current = true
-    let ignore = false
-
-    loadIntakeConfig(metadataLoc)
-      .then((loaded) => {
-        if (ignore || !loaded?.enabled) return
-        setConfig(loaded)
-        setScanning(true)
-        return scanIntake(metadataLoc, loaded, {
+  const runScan = useCallback(
+    async (loaded: IntakeConfig) => {
+      setScanning(true)
+      setError(null)
+      setFiled(null)
+      setTidied(null)
+      setDismissed(false)
+      try {
+        const scan = await scanIntake(metadataLoc, loaded, {
           onProgress: (done, total) => {
-            if (!ignore) setProgress({ done, total })
+            if (alive.current) setProgress({ done, total })
           },
         })
-          .then((scan) => {
-            if (ignore) return
-            setMatches(scan.matches)
-            setRemaining(scan.remaining)
-          })
-          .catch((err) => {
-            if (!ignore) setError(err instanceof Error ? err.message : 'Could not look for new pictures.')
-          })
-          .finally(() => {
-            if (!ignore) setScanning(false)
-          })
-      })
-      .catch(() => {
-        // No configuration, or it couldn't be read: the rest of the app is
-        // unaffected, so this stays quiet rather than raising an error about
-        // a feature that may never have been set up.
-      })
+        if (!alive.current) return
+        setMatches(scan.matches)
+        setStrays(scan.strays)
+        setRemaining(scan.remaining)
+      } catch (err) {
+        if (alive.current) setError(err instanceof Error ? err.message : 'Could not look for new pictures.')
+      } finally {
+        if (alive.current) setScanning(false)
+      }
+    },
+    [metadataLoc]
+  )
+
+  useEffect(() => {
+    alive.current = true
+    if (!started.current) {
+      started.current = true
+      loadIntakeConfig(metadataLoc)
+        .then((loaded) => {
+          if (!alive.current || !loaded) return
+          setConfig(loaded)
+          // The switch governs looking on its own; asking for a look is
+          // always allowed, which is why the config is kept either way.
+          if (loaded.enabled) return runScan(loaded)
+        })
+        .catch(() => {
+          // No configuration, or it couldn't be read: the rest of the app is
+          // unaffected, so this stays quiet rather than raising an error about
+          // a feature that may never have been set up.
+        })
+    }
 
     return () => {
-      ignore = true
+      alive.current = false
     }
-  }, [metadataLoc])
+  }, [metadataLoc, runScan])
 
   // Recorded in the account, not just this session: the point of "never" is
   // that the next scan doesn't even read this file's header again.
@@ -110,13 +130,19 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
     const chosen = matches.filter((m) => !deselected.has(m.md5))
     if (chosen.length === 0) return
     setFiling(true)
+    setConfirmingMove(false)
     setError(null)
     try {
       const result = await fileIntake(config, chosen)
       setFiled(result.copied)
+      setRemovedCount(result.removed)
       setMatches(null)
       if (result.failed.length > 0) {
         setError(`${result.failed.length} could not be copied: ${result.failed[0].error}`)
+      } else if (result.removeFailed.length > 0) {
+        setError(
+          `${result.removeFailed.length} filed, but stayed in ${config.source.path || config.source.mountpoint}: ${result.removeFailed[0].error}`
+        )
       }
       // A picture nobody has read is invisible to the catalogue — not
       // findable by date, place or camera — so reading it is part of filing
@@ -147,23 +173,97 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
     }
   }
 
-  if (dismissed || !config) return null
+  // The backlog: pictures already in the artwork folder that earlier copying
+  // left sitting among the photographs. Nothing is copied here — the content
+  // is demonstrably already filed, so this only takes the spare out.
+  async function handleTidy() {
+    if (!config || strays.length === 0) return
+    setConfirmingStrays(false)
+    setError(null)
+    setTidying({ done: 0, total: strays.length })
+    try {
+      const result = await removeStrays(config, strays, {
+        onProgress: (done, total) => setTidying({ done, total }),
+      })
+      setTidied(result.removed)
+      setStrays([])
+      if (result.failed.length > 0) {
+        setError(`${result.failed.length} could not be removed: ${result.failed[0].error}`)
+      } else if (result.unconfirmed > 0) {
+        // Left alone on purpose: the copy in the artwork folder wasn't there
+        // on the second look, and a picture that exists in one place only is
+        // not a spare.
+        setError(
+          `${result.unconfirmed} left where they are — no copy of them was found in ${config.dest.path || config.dest.mountpoint} just now.`
+        )
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not tidy the photo folder.')
+    } finally {
+      setTidying(null)
+    }
+  }
+
+  if (!config) return null
+
+  const sourceName = config.source.path || config.source.mountpoint
+  const destName = config.dest.path || config.dest.mountpoint
+  const moving = config.mode === 'move'
+
+  // Asking for a look is always available, even when a scan found nothing and
+  // even after dismissing one — "a function in the app" rather than something
+  // that only happens to you when the app opens.
+  const lookAgain = (
+    <button
+      onClick={() => void runScan(config)}
+      disabled={scanning || filing || tidying !== null}
+      className="text-xs text-indigo-700 hover:underline disabled:opacity-50 dark:text-indigo-300"
+    >
+      Look for PicsArt work now
+    </button>
+  )
+
+  if (dismissed) return <p className="text-xs text-zinc-400">{lookAgain}</p>
 
   // Quiet while it works: this runs on every start, and a spinner shouting
   // about a background errand every time you open the app would wear thin.
   if (scanning) {
     return (
       <p className="text-xs text-zinc-400">
-        Looking for new pictures in {config.source.path || config.source.mountpoint}
+        Looking for new pictures in {sourceName}
         {progress && progress.total > 0 ? ` — ${progress.done} of ${progress.total} checked` : '…'}
       </p>
+    )
+  }
+
+  if (tidying) {
+    return (
+      <p className="text-xs text-zinc-400">
+        Taking pictures already filed out of {sourceName} — {tidying.done} of {tidying.total}
+      </p>
+    )
+  }
+
+  if (tidied !== null) {
+    return (
+      <div className="rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+        Took {tidied} picture{tidied === 1 ? '' : 's'} out of {sourceName}. They were already in {destName};
+        the copies that were in with your photographs are now in Jottacloud&rsquo;s trash.
+        {error && <span className="block text-xs">{error}</span>}
+        <span className="mt-1 block">{lookAgain}</span>
+      </div>
     )
   }
 
   if (filed !== null) {
     return (
       <div className="rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-        Filed {filed} picture{filed === 1 ? '' : 's'} into {config.dest.path || config.dest.mountpoint}.
+        Filed {filed} picture{filed === 1 ? '' : 's'} into {destName}.
+        {removedCount > 0 && (
+          <span className="block text-xs">
+            {removedCount} taken out of {sourceName} — in Jottacloud&rsquo;s trash if you want them back.
+          </span>
+        )}
         {describing && (
           <span className="block text-xs">
             Reading what they say about themselves — {describing.done} of {describing.total}
@@ -175,15 +275,70 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
           </span>
         )}
         {error && <span className="block text-xs">{error}</span>}
+        <span className="mt-1 block">{lookAgain}</span>
       </div>
     )
   }
 
   if (error && !matches) {
-    return <p className="text-xs text-amber-700 dark:text-amber-500">{error}</p>
+    return (
+      <p className="text-xs text-amber-700 dark:text-amber-500">
+        {error} <span className="ml-1">{lookAgain}</span>
+      </p>
+    )
   }
 
-  if (!matches || matches.length === 0) return null
+  const nothingNew = !matches || matches.length === 0
+
+  // Nothing new, but the photo folder still holds pictures that are already
+  // filed. On its own this is the whole point of moving: the folders only
+  // stay separate if what earlier copying left behind is cleared out too.
+  if (nothingNew && strays.length > 0) {
+    return (
+      <div className="flex flex-col gap-2 rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950">
+        <p>
+          <strong>{strays.length.toLocaleString()}</strong> picture
+          {strays.length === 1 ? ' is' : 's are'} already in {destName} but still sitting in {sourceName}.
+          <span className="block text-xs text-zinc-500">
+            Copies left behind before filing started moving them. Taking them out is what keeps your work
+            separate from your photographs.
+          </span>
+        </p>
+        {confirmingStrays ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleTidy}
+              className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500"
+            >
+              Yes, take {strays.length.toLocaleString()} out of {sourceName}
+            </button>
+            <button
+              onClick={() => setConfirmingStrays(false)}
+              className="px-2 text-sm text-zinc-600 dark:text-zinc-400"
+            >
+              Cancel
+            </button>
+            <span className="text-xs text-zinc-500">
+              Each one is checked against {destName} again first, and goes to Jottacloud&rsquo;s trash.
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setConfirmingStrays(true)}
+              className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500"
+            >
+              Take them out of {sourceName}
+            </button>
+            {lookAgain}
+          </div>
+        )}
+        {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      </div>
+    )
+  }
+
+  if (nothingNew) return <p className="text-xs text-zinc-400">{lookAgain}</p>
 
   const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
   const chosenCount = matches.filter((m) => !deselected.has(m.md5)).length
@@ -192,12 +347,17 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
     <div className="flex flex-col gap-2 rounded border border-indigo-300 bg-indigo-50 p-3 text-sm dark:border-indigo-800 dark:bg-indigo-950">
       <div className="flex items-start justify-between gap-2">
         <p>
-          <strong>{matches.length}</strong> new picture{matches.length === 1 ? '' : 's'} from{' '}
-          {config.source.path || config.source.mountpoint} look{matches.length === 1 ? 's' : ''} like your
-          work.
+          <strong>{matches.length}</strong> new picture{matches.length === 1 ? '' : 's'} from {sourceName}{' '}
+          look{matches.length === 1 ? 's' : ''} like your work.
           {remaining > 0 && (
             <span className="block text-xs text-zinc-500">
               {remaining} more still to check — they&rsquo;ll be looked at next time you open the app.
+            </span>
+          )}
+          {strays.length > 0 && (
+            <span className="block text-xs text-zinc-500">
+              {strays.length.toLocaleString()} more are already in {destName} but still sitting here — file
+              these first and they&rsquo;ll be offered next.
             </span>
           )}
         </p>
@@ -211,25 +371,50 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          onClick={handleFile}
-          disabled={filing || chosenCount === 0}
-          className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-        >
-          {filing
-            ? 'Copying…'
-            : chosenCount === matches.length
-              ? `Copy to ${config.dest.path || config.dest.mountpoint}`
-              : `Copy ${chosenCount} to ${config.dest.path || config.dest.mountpoint}`}
-        </button>
-        <button
-          onClick={() => setShowList((v) => !v)}
-          className="text-xs text-indigo-700 hover:underline dark:text-indigo-300"
-        >
-          {showList ? 'Hide them' : 'Show me'}
-        </button>
-      </div>
+      {/* Moving is confirmed separately, because it's the one that takes
+          something away: a wrong guess copied is clutter, a wrong guess moved
+          is a photograph gone from where you expect it. */}
+      {confirmingMove ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleFile}
+            disabled={filing}
+            className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+          >
+            {filing ? 'Moving…' : `Yes, move ${chosenCount} out of ${sourceName}`}
+          </button>
+          <button
+            onClick={() => setConfirmingMove(false)}
+            className="px-2 text-sm text-zinc-600 dark:text-zinc-400"
+          >
+            Cancel
+          </button>
+          <span className="text-xs text-zinc-500">
+            Each is copied first and only removed once that copy has succeeded. Removed pictures go to
+            Jottacloud&rsquo;s trash.
+          </span>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => (moving ? setConfirmingMove(true) : handleFile())}
+            disabled={filing || chosenCount === 0}
+            className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+          >
+            {filing
+              ? 'Copying…'
+              : chosenCount === matches.length
+                ? `${moving ? 'Move' : 'Copy'} to ${destName}`
+                : `${moving ? 'Move' : 'Copy'} ${chosenCount} to ${destName}`}
+          </button>
+          <button
+            onClick={() => setShowList((v) => !v)}
+            className="text-xs text-indigo-700 hover:underline dark:text-indigo-300"
+          >
+            {showList ? 'Hide them' : 'Show me'}
+          </button>
+        </div>
+      )}
 
       {/* Each with what gave it away, so a photograph caught by mistake can be
           seen for what it is before anything is copied. */}

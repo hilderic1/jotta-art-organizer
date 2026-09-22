@@ -73,6 +73,7 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
       source: which === 'source' ? folder : config?.source ?? folder,
       dest: which === 'dest' ? folder : config?.dest ?? folder,
       enabled: config?.enabled ?? false,
+      mode: config?.mode ?? 'copy',
     }
     setPicking(null)
     void persist(next)
@@ -85,9 +86,9 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
       <h2 className="text-sm font-medium">Filing new work</h2>
       <p className="mt-1 text-xs text-zinc-500">
         When you open the app it can look through the pictures your iPad has backed up, pick out the ones
-        PicsArt or an AI tool made, and offer to copy them in with your artwork. It reads what the files
+        PicsArt or an AI tool made, and offer to file them with your artwork. It reads what the files
         themselves record, so it doesn&rsquo;t depend on how they&rsquo;re named — and it always asks before
-        copying anything. Originals stay in the backup untouched.
+        touching anything.
       </p>
 
       <dl className="mt-3 flex flex-col gap-2 text-xs">
@@ -107,7 +108,9 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
 
         <div className="flex items-center justify-between gap-2">
           <span>
-            <dt className="inline text-zinc-500">Copy them to </dt>
+            <dt className="inline text-zinc-500">
+              {config?.mode === 'move' ? 'Move them to ' : 'Copy them to '}
+            </dt>
             <dd className="inline font-medium">{label(config?.dest ?? null)}</dd>
           </span>
           <button
@@ -119,6 +122,41 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
         </div>
         {picking === 'dest' && <LocationPicker onSelect={(loc) => pick('dest', loc)} />}
       </dl>
+
+      {/* Which one is right depends on what the source folder is for, and
+          only you know that — a phone backup is supposed to hold everything
+          the phone has, while a photo library you actually look through is
+          better off without the artwork mixed into it. */}
+      <fieldset className="mt-3 text-xs">
+        <legend className="text-zinc-500">When a picture is filed</legend>
+        <div className="mt-1 flex flex-col gap-1">
+          {(
+            [
+              ['copy', 'Leave a copy where it was', 'Nothing is removed. The picture ends up in both places.'],
+              [
+                'move',
+                'Take it out of the photos',
+                'Removed once the copy has succeeded, never before. Removed pictures go to Jottacloud’s trash, so a mistake can be undone there.',
+              ],
+            ] as const
+          ).map(([value, title, detail]) => (
+            <label key={value} className="flex items-start gap-2">
+              <input
+                type="radio"
+                name="intake-mode"
+                checked={(config?.mode ?? 'copy') === value}
+                disabled={!config}
+                onChange={() => config && void persist({ ...config, mode: value })}
+                className="mt-0.5 shrink-0"
+              />
+              <span>
+                {title}
+                <span className="block text-zinc-500">{detail}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
 
       <label className="mt-3 flex w-fit items-center gap-2 text-xs">
         <input

@@ -6,12 +6,15 @@
 // folder, using what the files themselves say rather than guessing from
 // filenames.
 //
-// Copies rather than moves, deliberately. The backup is meant to hold
-// everything the iPad has; deleting from it would fight the phone, which
-// still has the picture and would simply upload it again.
+// Copying and moving are both offered, and which one is right depends on what
+// the source folder is for. A phone backup is meant to hold everything the
+// phone has, so copying leaves it intact; a photo library you actually read is
+// better off without the artwork mixed in, so moving takes it out. Moving is
+// therefore a setting rather than a decision made here — see IntakeConfig.mode.
 import {
   walkTree,
   copyFile,
+  deleteFile,
   listFolder,
   type MountpointRef,
   type WalkEntry,
@@ -31,6 +34,10 @@ export type IntakeConfig = {
   /** Where her artwork is kept. */
   dest: FolderRef
   enabled: boolean
+  /** Whether filing takes the picture out of the source folder as well as
+   *  putting it in the destination. Absent means copy, which is what every
+   *  setup saved before moving existed. */
+  mode?: 'copy' | 'move'
 }
 
 export type IntakeMatch = {
@@ -44,6 +51,11 @@ export type IntakeMatch = {
 
 export type IntakeScan = {
   matches: IntakeMatch[]
+  /** Pictures whose content is already in the destination, yet which are
+   *  still sitting in the photo folder — what copying leaves behind, and
+   *  what separating the two folders means getting rid of. Only collected
+   *  when moving, because copying is the choice to keep both. */
+  strays: IntakeMatch[]
   /** Candidates left unexamined because the run hit its budget. Reported so
    *  a partial answer never reads as a complete one. */
   remaining: number
@@ -148,6 +160,22 @@ export async function scanIntake(
   const alreadyThere = new Set(dest.files.map((f) => f.md5))
   const candidates = source.files.filter((f) => !alreadyThere.has(f.md5) && !examined.has(f.md5))
 
+  // No header read needed to know these are hers: the same content is in the
+  // artwork folder, which is how it got there. Every earlier run that copied
+  // rather than moved left one of these behind, so this is the backlog that
+  // stands between "filed" and "separated".
+  const strays =
+    config.mode === 'move'
+      ? source.files
+          .filter((f) => alreadyThere.has(f.md5))
+          .map((f) => ({
+            md5: f.md5,
+            path: f.absPath,
+            name: f.absPath.split('/').pop() ?? f.md5,
+            reason: `Already in ${config.dest.path || config.dest.mountpoint}`,
+          }))
+      : []
+
   const batch = candidates.slice(0, EXAMINE_BUDGET)
   const matches: IntakeMatch[] = []
   let done = 0
@@ -187,7 +215,7 @@ export async function scanIntake(
     // Losing this costs a repeated scan, never a wrong result.
   })
 
-  return { matches, remaining: candidates.length - batch.length, examined: batch.length }
+  return { matches, strays, remaining: candidates.length - batch.length, examined: batch.length }
 }
 
 export type IntakeResult = {
@@ -195,6 +223,11 @@ export type IntakeResult = {
   failed: { name: string; error: string }[]
   /** Where each copy landed, so the caller can describe them straight away. */
   copiedPaths: string[]
+  /** Originals taken out of the photo folder. Zero unless moving. */
+  removed: number
+  /** Copied, but the original stayed put — reported apart from a failed copy
+   *  because the picture is safely filed and only the tidying went wrong. */
+  removeFailed: { name: string; error: string }[]
 }
 
 // One at a time: a copy is a server-side operation on Jottacloud's side, and
@@ -214,6 +247,9 @@ export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): 
   )
 
   const copiedPaths: string[] = []
+  const removeFailed: IntakeResult['removeFailed'] = []
+  let removed = 0
+
   for (const match of matches) {
     const name = uniqueName(match.name, existing)
     try {
@@ -226,10 +262,70 @@ export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): 
       copied++
     } catch (err) {
       failed.push({ name: match.name, error: err instanceof Error ? err.message : 'Copy failed.' })
+      continue
+    }
+    // Strictly after the copy has succeeded, and skipped entirely when it
+    // hasn't: a move that removes first, or removes anyway, is a move that
+    // can lose the picture.
+    if (config.mode === 'move') {
+      try {
+        await deleteFile(sourceLoc, match.path)
+        removed++
+      } catch (err) {
+        removeFailed.push({
+          name: match.name,
+          error: err instanceof Error ? err.message : 'Could not remove the original.',
+        })
+      }
     }
   }
 
-  return { copied, failed, copiedPaths }
+  return { copied, failed, copiedPaths, removed, removeFailed }
+}
+
+/**
+ * Takes out of the photo folder the pictures whose content is already in the
+ * artwork folder — the ones earlier copying left behind.
+ *
+ * The destination is walked again first, so nothing is removed on the strength
+ * of a listing taken minutes ago: a picture is only taken out of the source
+ * once its content has been seen in the destination just now.
+ */
+export async function removeStrays(
+  config: IntakeConfig,
+  strays: IntakeMatch[],
+  opts?: { onProgress?: (done: number, total: number) => void }
+): Promise<{ removed: number; failed: { name: string; error: string }[]; unconfirmed: number }> {
+  const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
+  const destLoc = { device: config.dest.device, mountpoint: config.dest.mountpoint }
+
+  const dest = await walkTree(destLoc, config.dest.path)
+  const filed = new Set(dest.files.map((f) => f.md5))
+
+  const failed: { name: string; error: string }[] = []
+  let removed = 0
+  let unconfirmed = 0
+  let done = 0
+
+  for (const stray of strays) {
+    if (!filed.has(stray.md5)) {
+      unconfirmed++
+      opts?.onProgress?.(++done, strays.length)
+      continue
+    }
+    try {
+      await deleteFile(sourceLoc, stray.path)
+      removed++
+    } catch (err) {
+      failed.push({
+        name: stray.name,
+        error: err instanceof Error ? err.message : 'Could not remove it.',
+      })
+    }
+    opts?.onProgress?.(++done, strays.length)
+  }
+
+  return { removed, failed, unconfirmed }
 }
 
 function uniqueName(name: string, taken: Set<string>): string {
