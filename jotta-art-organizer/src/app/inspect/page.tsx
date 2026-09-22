@@ -12,6 +12,7 @@ import {
   type JottaEntry,
 } from '@/lib/api'
 import { LocationPicker } from '@/components/LocationPicker'
+import { AccountSurvey } from '@/components/AccountSurvey'
 import { Thumbnail } from '@/components/Thumbnail'
 import { FileProperties } from '@/components/FileProperties'
 import { readArtworkMetadata, type ArtworkFileMetadata } from '@/lib/imageMetadata'
@@ -194,6 +195,11 @@ export default function InspectPage() {
           read it.
         </p>
       </div>
+
+      {/* Above the folder picker, because the question it answers — which
+          mountpoint holds the pictures — is the one you have before you can
+          sensibly pick a folder at all. */}
+      {!location && <AccountSurvey />}
 
       {!location && <LocationPicker onSelect={setLocation} />}
 
