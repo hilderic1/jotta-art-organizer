@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import Link from 'next/link'
 import type { MountpointRef } from '@/lib/api'
 import { Thumbnail } from './Thumbnail'
 import { ImageViewer } from './ImageViewer'
@@ -12,6 +13,7 @@ import {
   removeStrays,
   appendIntakeLog,
   summariseRun,
+  runNeeds,
   type IntakeConfig,
   type IntakeMatch,
   type IntakeLogEntry,
@@ -320,6 +322,7 @@ export function IntakeBanner({
 
     // What the last run did, rather than a button with nothing to say. Without
     // this a finished look is indistinguishable from one that never ran.
+    const followUp = run && runNeeds(run)
     const lastRunLine = run && (
       <span className="text-xs text-zinc-500">
         {/* Named in full for a look, because "did it go into the subfolders?"
@@ -333,6 +336,21 @@ export function IntakeBanner({
         <span className="text-zinc-400">
           {new Date(run.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
+        {/* Counts alone read as a task whose instructions went missing. This
+            says whether anything is actually left, and where to do it. */}
+        {followUp && (
+          <span className="block">
+            {followUp.what}
+            {followUp.where === 'setup' && (
+              <>
+                {' '}
+                <Link href="/setup" className="text-indigo-700 hover:underline dark:text-indigo-300">
+                  Filing new artwork, in Setup
+                </Link>
+              </>
+            )}
+          </span>
+        )}
       </span>
     )
 

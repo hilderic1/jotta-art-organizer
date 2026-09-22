@@ -158,7 +158,13 @@ export async function appendIntakeLog(
   return runs
 }
 
-/** One line per run, phrased here so the banner and Setup say the same thing. */
+/**
+ * One line per run, phrased here so the banner and Setup say the same thing.
+ *
+ * Every clause is something already settled. Anything still outstanding is
+ * named by `runNeeds` instead, so a line full of counts can't be read as a
+ * list of chores — which is exactly how "33 set aside before, 1 read" read.
+ */
 export function summariseRun(entry: IntakeLogEntry): string {
   if (entry.kind === 'look') {
     const parts: string[] = []
@@ -170,11 +176,12 @@ export function summariseRun(entry: IntakeLogEntry): string {
       )
     }
     if (entry.alreadyFiled) parts.push(`${entry.alreadyFiled.toLocaleString()} already filed`)
-    if (entry.setAside) parts.push(`${entry.setAside.toLocaleString()} set aside before`)
-    if (entry.read != null) parts.push(`${entry.read.toLocaleString()} read`)
-    parts.push(`${(entry.found ?? 0).toLocaleString()} new to file`)
-    if (entry.remaining) parts.push(`${entry.remaining.toLocaleString()} left for next time`)
-    return `${entry.stopped ? 'Stopped early — ' : ''}${parts.join(', ')}`
+    if (entry.setAside) {
+      parts.push(`${entry.setAside.toLocaleString()} already judged not your work`)
+    }
+    if (entry.read) parts.push(`${entry.read.toLocaleString()} newly read`)
+    parts.push(entry.found ? `${entry.found.toLocaleString()} new to file` : 'nothing new to file')
+    return `${entry.stopped ? 'stopped early — ' : ''}${parts.join(', ')}`
   }
   if (entry.kind === 'file') {
     const parts = [`${(entry.filed ?? 0).toLocaleString()} filed`]
@@ -186,6 +193,47 @@ export function summariseRun(entry: IntakeLogEntry): string {
   const parts = [`${(entry.removed ?? 0).toLocaleString()} already-filed pictures taken out of the photos`]
   if (entry.failed) parts.push(`${entry.failed.toLocaleString()} could not be removed`)
   return parts.join(', ')
+}
+
+/**
+ * What the run leaves outstanding, if anything — named as an action, with
+ * where to do it.
+ *
+ * A run that leaves nothing outstanding says so. A list of counts with no
+ * verdict reads as a chore whose instructions went missing, which is worse
+ * than saying "nothing to do".
+ */
+export type RunFollowUp = {
+  /** What's left, in words. */
+  what: string
+  /** 'look' is the banner's own button; 'setup' is the Filing new artwork
+   *  section, which is where a decision can be taken back. */
+  where: 'look' | 'setup' | null
+}
+
+export function runNeeds(entry: IntakeLogEntry): RunFollowUp | null {
+  if (entry.kind !== 'look') return entry.failed ? { what: 'Some files failed — see the error above.', where: null } : null
+
+  // A budgeted run is the one genuine follow-up: there are pictures it hasn't
+  // opened yet, and the only thing that opens them is another look.
+  if (entry.remaining) {
+    return {
+      what: `${entry.remaining.toLocaleString()} picture${entry.remaining === 1 ? '' : 's'} still to be read — each look reads up to ${EXAMINE_BUDGET}.`,
+      where: 'look',
+    }
+  }
+  if (entry.stopped) {
+    return { what: 'This look was stopped before it finished.', where: 'look' }
+  }
+  // Everything else is settled. The set-aside pile is the one settled thing
+  // that can be unsettled, so it's offered as a choice rather than a task.
+  if (entry.found === 0 && entry.setAside) {
+    return {
+      what: 'Nothing to do. Pictures judged not to be your work are never offered again — you can put them back in front of it.',
+      where: 'setup',
+    }
+  }
+  return entry.found ? null : { what: 'Nothing to do.', where: null }
 }
 
 export async function loadIntakeConfig(metadataLoc: MountpointRef): Promise<IntakeConfig | null> {

@@ -10,6 +10,7 @@ import {
   forgetNotArtwork,
   loadIntakeLog,
   summariseRun,
+  runNeeds,
   type FolderRef,
   type IntakeConfig,
   type IntakeLogEntry,
@@ -224,15 +225,23 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
           </button>
           {showRuns && (
             <ul className="mt-2 flex flex-col gap-1">
-              {runs.map((entry) => (
-                <li key={entry.at} className="flex flex-wrap gap-x-2 text-zinc-500">
-                  <span className="text-zinc-400">{new Date(entry.at).toLocaleString()}</span>
-                  <span>
-                    {entry.kind === 'look' ? 'Looked' : entry.kind === 'file' ? 'Filed' : 'Tidied'} —{' '}
-                    {summariseRun(entry)}
-                  </span>
-                </li>
-              ))}
+              {runs.map((entry) => {
+                // Only what's genuinely outstanding. "Nothing to do" against
+                // every run in a list is noise, not reassurance.
+                const needs = runNeeds(entry)
+                return (
+                  <li key={entry.at} className="flex flex-wrap gap-x-2 text-zinc-500">
+                    <span className="text-zinc-400">{new Date(entry.at).toLocaleString()}</span>
+                    <span>
+                      {entry.kind === 'look' ? 'Looked' : entry.kind === 'file' ? 'Filed' : 'Tidied'} —{' '}
+                      {summariseRun(entry)}
+                      {needs?.where === 'look' && (
+                        <span className="block text-amber-700 dark:text-amber-500">{needs.what}</span>
+                      )}
+                    </span>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </div>
