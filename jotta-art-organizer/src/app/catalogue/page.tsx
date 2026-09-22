@@ -221,12 +221,22 @@ export default function CataloguePage() {
         {/* Opening the app is the only moment there is — iOS gives a web app
             no background — so the check for newly backed-up work happens
             here, on the screen you land on. */}
-        <IntakeBanner metadataLoc={session.metadataLocation} />
-        <p className="text-sm text-zinc-500">
-          Choose the folder holding the work you want to tag. Only what that folder needs is loaded,
-          and you can switch to another one at any time.
-        </p>
-        <LocationPicker onSelect={pickFolder} />
+        {/* The picker is handed to the banner rather than placed beside it:
+            choosing a folder replaces this whole screen, so offering it while
+            the look is still running was offering to call the look off. It
+            comes back on Skip, on Not now, and when filing has finished. */}
+        <IntakeBanner
+          metadataLoc={session.metadataLocation}
+          whenSettled={
+            <>
+              <p className="text-sm text-zinc-500">
+                Choose the folder holding the work you want to tag. Only what that folder needs is
+                loaded, and you can switch to another one at any time.
+              </p>
+              <LocationPicker onSelect={pickFolder} />
+            </>
+          }
+        />
       </div>
     )
   }

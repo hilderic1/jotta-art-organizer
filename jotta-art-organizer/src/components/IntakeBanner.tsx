@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { MountpointRef } from '@/lib/api'
 import { Thumbnail } from './Thumbnail'
 import { ImageViewer } from './ImageViewer'
@@ -36,7 +36,16 @@ let lastRun: IntakeLogEntry | null = null
  * guess that has already copied a picture somewhere is far more annoying to
  * undo than one that asked first.
  */
-export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
+export function IntakeBanner({
+  metadataLoc,
+  whenSettled,
+}: {
+  metadataLoc: MountpointRef
+  /** Shown only once the banner has nothing running and nothing waiting on
+   *  you. The Catalogue passes its folder picker, because choosing a folder
+   *  takes this screen away and calls off whatever was in progress. */
+  whenSettled?: ReactNode
+}) {
   const [config, setConfig] = useState<IntakeConfig | null>(null)
   const [scanning, setScanning] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -269,318 +278,340 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
     }
   }
 
-  if (!config) return null
+  // Busy means: looking, working, or holding a decision that hasn't been
+  // made. Whatever the page hands over as `whenSettled` is kept back until
+  // this is false — on the Catalogue that's the folder picker, and taking it
+  // mid-look used to call the look off without ever saying so.
+  const showingResult = filed !== null || tidied !== null
+  const busy =
+    scanning ||
+    stopping ||
+    filing ||
+    tidying !== null ||
+    (!dismissed && !showingResult && ((matches?.length ?? 0) > 0 || strays.length > 0))
 
-  const sourceName = config.source.path || config.source.mountpoint
-  const destName = config.dest.path || config.dest.mountpoint
-  const moving = config.mode === 'move'
-
-  // Asking for a look is always available, even when a scan found nothing and
-  // even after dismissing one — "a function in the app" rather than something
-  // that only happens to you when the app opens.
-  const lookAgain = (
-    <button
-      onClick={() => void runScan(config)}
-      disabled={scanning || filing || tidying !== null}
-      className="text-xs text-indigo-700 hover:underline disabled:opacity-50 dark:text-indigo-300"
-    >
-      Look for new artwork now
-    </button>
+  const body = renderBody()
+  return (
+    <>
+      {body}
+      {!busy && whenSettled}
+    </>
   )
 
-  // What the last run did, rather than a button with nothing to say. Without
-  // this a finished look is indistinguishable from one that never ran.
-  const lastRunLine = run && (
-    <span className="text-xs text-zinc-500">
-      {/* Named in full for a look, because "did it go into the subfolders?"
-          is otherwise unanswerable from the screen — and the answer is yes. */}
-      {run.kind === 'look'
-        ? `Looked through ${sourceName} and everything below it`
-        : run.kind === 'file'
-          ? 'Last filing'
-          : 'Last tidy'}{' '}
-      — {summariseRun(run)}.{' '}
-      <span className="text-zinc-400">
-        {new Date(run.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-      </span>
-    </span>
-  )
+  function renderBody() {
+    if (!config) return null
 
-  if (dismissed) {
-    return (
-      <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-zinc-400">
-        {lastRunLine}
-        {lookAgain}
-      </p>
+    const sourceName = config.source.path || config.source.mountpoint
+    const destName = config.dest.path || config.dest.mountpoint
+    const moving = config.mode === 'move'
+
+    // Asking for a look is always available, even when a scan found nothing and
+    // even after dismissing one — "a function in the app" rather than something
+    // that only happens to you when the app opens.
+    const lookAgain = (
+      <button
+        onClick={() => void runScan(config)}
+        disabled={scanning || filing || tidying !== null}
+        className="text-xs text-indigo-700 hover:underline disabled:opacity-50 dark:text-indigo-300"
+      >
+        Look for new artwork now
+      </button>
     )
-  }
 
-  // Quiet while it works: this runs on every start, and a spinner shouting
-  // about a background errand every time you open the app would wear thin.
-  // Skipping is a button rather than something you do by leaving the screen:
-  // the walk is long enough to sit through, and choosing a folder to get past
-  // it used to abandon the look without ever saying so.
-  if (scanning) {
-    return (
-      <p className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-        <span>
-          Looking for new artwork in {sourceName}
-          {progress && progress.total > 0 ? ` — ${progress.done} of ${progress.total} checked` : '…'}
+    // What the last run did, rather than a button with nothing to say. Without
+    // this a finished look is indistinguishable from one that never ran.
+    const lastRunLine = run && (
+      <span className="text-xs text-zinc-500">
+        {/* Named in full for a look, because "did it go into the subfolders?"
+            is otherwise unanswerable from the screen — and the answer is yes. */}
+        {run.kind === 'look'
+          ? `Looked through ${sourceName} and everything below it`
+          : run.kind === 'file'
+            ? 'Last filing'
+            : 'Last tidy'}{' '}
+        — {summariseRun(run)}.{' '}
+        <span className="text-zinc-400">
+          {new Date(run.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
-        <button
-          onClick={() => {
-            setStopping(true)
-            stopper.current?.abort()
-          }}
-          disabled={stopping}
-          className="text-indigo-700 hover:underline disabled:opacity-50 dark:text-indigo-300"
-        >
-          {/* Requests already sent still have to come back, so this says what
-              is happening rather than appearing to hang. */}
-          {stopping ? 'Stopping…' : 'Skip for now'}
-        </button>
-      </p>
+      </span>
     )
-  }
 
-  if (tidying) {
-    return (
-      <p className="text-xs text-zinc-400">
-        Taking pictures already filed out of {sourceName} — {tidying.done} of {tidying.total}
-      </p>
-    )
-  }
-
-  if (tidied !== null) {
-    return (
-      <div className="rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-        Took {tidied} picture{tidied === 1 ? '' : 's'} out of {sourceName}. They were already in {destName};
-        the copies that were in with your photographs are now in Jottacloud&rsquo;s trash.
-        {error && <span className="block text-xs">{error}</span>}
-        <span className="mt-1 block">{lookAgain}</span>
-      </div>
-    )
-  }
-
-  if (filed !== null) {
-    return (
-      <div className="rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-        Filed {filed} picture{filed === 1 ? '' : 's'} into {destName}.
-        {removedCount > 0 && (
-          <span className="block text-xs">
-            {removedCount} taken out of {sourceName} — in Jottacloud&rsquo;s trash if you want them back.
-          </span>
-        )}
-        {describing && (
-          <span className="block text-xs">
-            Reading what they say about themselves — {describing.done} of {describing.total}
-          </span>
-        )}
-        {!describing && described > 0 && (
-          <span className="block text-xs">
-            {described} of them described from what the file says — ready to find by date, place or camera.
-          </span>
-        )}
-        {error && <span className="block text-xs">{error}</span>}
-        <span className="mt-1 block">{lookAgain}</span>
-      </div>
-    )
-  }
-
-  if (error && !matches) {
-    return (
-      <p className="text-xs text-amber-700 dark:text-amber-500">
-        {error} <span className="ml-1">{lookAgain}</span>
-      </p>
-    )
-  }
-
-  const nothingNew = !matches || matches.length === 0
-
-  // Nothing new, but the photo folder still holds pictures that are already
-  // filed. On its own this is the whole point of moving: the folders only
-  // stay separate if what earlier copying left behind is cleared out too.
-  if (nothingNew && strays.length > 0) {
-    return (
-      <div className="flex flex-col gap-2 rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950">
-        <p>
-          <strong>{strays.length.toLocaleString()}</strong> picture
-          {strays.length === 1 ? ' is' : 's are'} already in {destName} but still sitting in {sourceName}.
-          <span className="block text-xs text-zinc-500">
-            Copies left behind before filing started moving them. Taking them out is what keeps your work
-            separate from your photographs.
-          </span>
+    if (dismissed) {
+      return (
+        <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-zinc-400">
+          {lastRunLine}
+          {lookAgain}
         </p>
-        {confirmingStrays ? (
+      )
+    }
+
+    // Quiet while it works: this runs on every start, and a spinner shouting
+    // about a background errand every time you open the app would wear thin.
+    // Skipping is a button rather than something you do by leaving the screen:
+    // the walk is long enough to sit through, and choosing a folder to get past
+    // it used to abandon the look without ever saying so.
+    if (scanning) {
+      return (
+        <p className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+          <span>
+            Looking for new artwork in {sourceName}
+            {progress && progress.total > 0 ? ` — ${progress.done} of ${progress.total} checked` : '…'}
+          </span>
+          <button
+            onClick={() => {
+              setStopping(true)
+              stopper.current?.abort()
+            }}
+            disabled={stopping}
+            className="text-indigo-700 hover:underline disabled:opacity-50 dark:text-indigo-300"
+          >
+            {/* Requests already sent still have to come back, so this says what
+                is happening rather than appearing to hang. */}
+            {stopping ? 'Stopping…' : 'Skip for now'}
+          </button>
+        </p>
+      )
+    }
+
+    if (tidying) {
+      return (
+        <p className="text-xs text-zinc-400">
+          Taking pictures already filed out of {sourceName} — {tidying.done} of {tidying.total}
+        </p>
+      )
+    }
+
+    if (tidied !== null) {
+      return (
+        <div className="rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+          Took {tidied} picture{tidied === 1 ? '' : 's'} out of {sourceName}. They were already in {destName};
+          the copies that were in with your photographs are now in Jottacloud&rsquo;s trash.
+          {error && <span className="block text-xs">{error}</span>}
+          <span className="mt-1 block">{lookAgain}</span>
+        </div>
+      )
+    }
+
+    if (filed !== null) {
+      return (
+        <div className="rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+          Filed {filed} picture{filed === 1 ? '' : 's'} into {destName}.
+          {removedCount > 0 && (
+            <span className="block text-xs">
+              {removedCount} taken out of {sourceName} — in Jottacloud&rsquo;s trash if you want them back.
+            </span>
+          )}
+          {describing && (
+            <span className="block text-xs">
+              Reading what they say about themselves — {describing.done} of {describing.total}
+            </span>
+          )}
+          {!describing && described > 0 && (
+            <span className="block text-xs">
+              {described} of them described from what the file says — ready to find by date, place or camera.
+            </span>
+          )}
+          {error && <span className="block text-xs">{error}</span>}
+          <span className="mt-1 block">{lookAgain}</span>
+        </div>
+      )
+    }
+
+    if (error && !matches) {
+      return (
+        <p className="text-xs text-amber-700 dark:text-amber-500">
+          {error} <span className="ml-1">{lookAgain}</span>
+        </p>
+      )
+    }
+
+    const nothingNew = !matches || matches.length === 0
+
+    // Nothing new, but the photo folder still holds pictures that are already
+    // filed. On its own this is the whole point of moving: the folders only
+    // stay separate if what earlier copying left behind is cleared out too.
+    if (nothingNew && strays.length > 0) {
+      return (
+        <div className="flex flex-col gap-2 rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950">
+          <p>
+            <strong>{strays.length.toLocaleString()}</strong> picture
+            {strays.length === 1 ? ' is' : 's are'} already in {destName} but still sitting in {sourceName}.
+            <span className="block text-xs text-zinc-500">
+              Copies left behind before filing started moving them. Taking them out is what keeps your work
+              separate from your photographs.
+            </span>
+          </p>
+          {confirmingStrays ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={handleTidy}
+                className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500"
+              >
+                Yes, take {strays.length.toLocaleString()} out of {sourceName}
+              </button>
+              <button
+                onClick={() => setConfirmingStrays(false)}
+                className="px-2 text-sm text-zinc-600 dark:text-zinc-400"
+              >
+                Cancel
+              </button>
+              <span className="text-xs text-zinc-500">
+                Each one is checked against {destName} again first, and goes to Jottacloud&rsquo;s trash.
+              </span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setConfirmingStrays(true)}
+                className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500"
+              >
+                Take them out of {sourceName}
+              </button>
+              {lookAgain}
+            </div>
+          )}
+          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+        </div>
+      )
+    }
+
+    if (nothingNew) {
+      return (
+        <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-zinc-400">
+          {lastRunLine}
+          {lookAgain}
+        </p>
+      )
+    }
+
+    const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
+    const chosenCount = matches.filter((m) => !deselected.has(m.md5)).length
+
+    return (
+      <div className="flex flex-col gap-2 rounded border border-indigo-300 bg-indigo-50 p-3 text-sm dark:border-indigo-800 dark:bg-indigo-950">
+        <div className="flex items-start justify-between gap-2">
+          <p>
+            <strong>{matches.length}</strong> new picture{matches.length === 1 ? '' : 's'} from {sourceName}{' '}
+            look{matches.length === 1 ? 's' : ''} like your work.
+            {remaining > 0 && (
+              <span className="block text-xs text-zinc-500">
+                {remaining} more still to check — they&rsquo;ll be looked at next time you open the app.
+              </span>
+            )}
+            {strays.length > 0 && (
+              <span className="block text-xs text-zinc-500">
+                {strays.length.toLocaleString()} more are already in {destName} but still sitting here — file
+                these first and they&rsquo;ll be offered next.
+              </span>
+            )}
+          </p>
+          <button
+            onClick={() => setDismissed(true)}
+            className="shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            aria-label="Not now"
+            title="Not now"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Moving is confirmed separately, because it's the one that takes
+            something away: a wrong guess copied is clutter, a wrong guess moved
+            is a photograph gone from where you expect it. */}
+        {confirmingMove ? (
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={handleTidy}
-              className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500"
+              onClick={handleFile}
+              disabled={filing}
+              className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
             >
-              Yes, take {strays.length.toLocaleString()} out of {sourceName}
+              {filing ? 'Moving…' : `Yes, move ${chosenCount} out of ${sourceName}`}
             </button>
             <button
-              onClick={() => setConfirmingStrays(false)}
+              onClick={() => setConfirmingMove(false)}
               className="px-2 text-sm text-zinc-600 dark:text-zinc-400"
             >
               Cancel
             </button>
             <span className="text-xs text-zinc-500">
-              Each one is checked against {destName} again first, and goes to Jottacloud&rsquo;s trash.
+              Each is copied first and only removed once that copy has succeeded. Removed pictures go to
+              Jottacloud&rsquo;s trash.
             </span>
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setConfirmingStrays(true)}
-              className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500"
+              onClick={() => (moving ? setConfirmingMove(true) : handleFile())}
+              disabled={filing || chosenCount === 0}
+              className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
             >
-              Take them out of {sourceName}
+              {filing
+                ? 'Copying…'
+                : chosenCount === matches.length
+                  ? `${moving ? 'Move' : 'Copy'} to ${destName}`
+                  : `${moving ? 'Move' : 'Copy'} ${chosenCount} to ${destName}`}
             </button>
-            {lookAgain}
+            <button
+              onClick={() => setShowList((v) => !v)}
+              className="text-xs text-indigo-700 hover:underline dark:text-indigo-300"
+            >
+              {showList ? 'Hide them' : 'Show me'}
+            </button>
           </div>
         )}
+
+        {/* Each with what gave it away, so a photograph caught by mistake can be
+            seen for what it is before anything is copied. */}
+        {showList && (
+          <ul className="max-h-64 overflow-y-auto">
+            {matches.map((m) => (
+              <li key={m.md5} className="flex items-center gap-2 py-1">
+                {/* Ticked by default — everything here matched — but a
+                    photograph caught by mistake can be dropped rather than
+                    forcing all or nothing. */}
+                <input
+                  type="checkbox"
+                  checked={!deselected.has(m.md5)}
+                  onChange={() => toggle(m.md5)}
+                  aria-label={`Copy ${m.name}`}
+                  className="shrink-0"
+                />
+                {/* The picture itself settles it faster than any label can,
+                    so the thumbnail opens it full size with what the file
+                    says beside it. */}
+                <button onClick={() => setViewing(m)} className="shrink-0" title={`Open ${m.name}`}>
+                  <Thumbnail loc={sourceLoc} path={m.path} alt={m.name} px={64} className="h-8 w-8 shrink-0 rounded object-cover" />
+                </button>
+                <button onClick={() => setViewing(m)} className="min-w-0 flex-1 text-left">
+                  <span className="block truncate text-xs">{m.name}</span>
+                  <span className="block truncate text-[11px] text-zinc-500">{m.reason}</span>
+                </button>
+                {/* Unticking is "not this time"; this is "stop asking". Both
+                    are wanted — one for a piece you're not ready to file, one
+                    for a picture that will never be your work. */}
+                <button
+                  onClick={() => neverAgain(m)}
+                  className="shrink-0 text-[11px] text-zinc-500 hover:text-red-600 hover:underline dark:hover:text-red-400"
+                  title="Don't offer this picture again"
+                >
+                  Never
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {viewing && (
+          <ImageViewer
+            loc={sourceLoc}
+            path={viewing.path}
+            title={viewing.name}
+            onClose={() => setViewing(null)}
+          />
+        )}
+
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
       </div>
     )
   }
-
-  if (nothingNew) {
-    return (
-      <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-zinc-400">
-        {lastRunLine}
-        {lookAgain}
-      </p>
-    )
-  }
-
-  const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
-  const chosenCount = matches.filter((m) => !deselected.has(m.md5)).length
-
-  return (
-    <div className="flex flex-col gap-2 rounded border border-indigo-300 bg-indigo-50 p-3 text-sm dark:border-indigo-800 dark:bg-indigo-950">
-      <div className="flex items-start justify-between gap-2">
-        <p>
-          <strong>{matches.length}</strong> new picture{matches.length === 1 ? '' : 's'} from {sourceName}{' '}
-          look{matches.length === 1 ? 's' : ''} like your work.
-          {remaining > 0 && (
-            <span className="block text-xs text-zinc-500">
-              {remaining} more still to check — they&rsquo;ll be looked at next time you open the app.
-            </span>
-          )}
-          {strays.length > 0 && (
-            <span className="block text-xs text-zinc-500">
-              {strays.length.toLocaleString()} more are already in {destName} but still sitting here — file
-              these first and they&rsquo;ll be offered next.
-            </span>
-          )}
-        </p>
-        <button
-          onClick={() => setDismissed(true)}
-          className="shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-          aria-label="Not now"
-          title="Not now"
-        >
-          ✕
-        </button>
-      </div>
-
-      {/* Moving is confirmed separately, because it's the one that takes
-          something away: a wrong guess copied is clutter, a wrong guess moved
-          is a photograph gone from where you expect it. */}
-      {confirmingMove ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleFile}
-            disabled={filing}
-            className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-          >
-            {filing ? 'Moving…' : `Yes, move ${chosenCount} out of ${sourceName}`}
-          </button>
-          <button
-            onClick={() => setConfirmingMove(false)}
-            className="px-2 text-sm text-zinc-600 dark:text-zinc-400"
-          >
-            Cancel
-          </button>
-          <span className="text-xs text-zinc-500">
-            Each is copied first and only removed once that copy has succeeded. Removed pictures go to
-            Jottacloud&rsquo;s trash.
-          </span>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => (moving ? setConfirmingMove(true) : handleFile())}
-            disabled={filing || chosenCount === 0}
-            className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-          >
-            {filing
-              ? 'Copying…'
-              : chosenCount === matches.length
-                ? `${moving ? 'Move' : 'Copy'} to ${destName}`
-                : `${moving ? 'Move' : 'Copy'} ${chosenCount} to ${destName}`}
-          </button>
-          <button
-            onClick={() => setShowList((v) => !v)}
-            className="text-xs text-indigo-700 hover:underline dark:text-indigo-300"
-          >
-            {showList ? 'Hide them' : 'Show me'}
-          </button>
-        </div>
-      )}
-
-      {/* Each with what gave it away, so a photograph caught by mistake can be
-          seen for what it is before anything is copied. */}
-      {showList && (
-        <ul className="max-h-64 overflow-y-auto">
-          {matches.map((m) => (
-            <li key={m.md5} className="flex items-center gap-2 py-1">
-              {/* Ticked by default — everything here matched — but a
-                  photograph caught by mistake can be dropped rather than
-                  forcing all or nothing. */}
-              <input
-                type="checkbox"
-                checked={!deselected.has(m.md5)}
-                onChange={() => toggle(m.md5)}
-                aria-label={`Copy ${m.name}`}
-                className="shrink-0"
-              />
-              {/* The picture itself settles it faster than any label can,
-                  so the thumbnail opens it full size with what the file
-                  says beside it. */}
-              <button onClick={() => setViewing(m)} className="shrink-0" title={`Open ${m.name}`}>
-                <Thumbnail loc={sourceLoc} path={m.path} alt={m.name} px={64} className="h-8 w-8 shrink-0 rounded object-cover" />
-              </button>
-              <button onClick={() => setViewing(m)} className="min-w-0 flex-1 text-left">
-                <span className="block truncate text-xs">{m.name}</span>
-                <span className="block truncate text-[11px] text-zinc-500">{m.reason}</span>
-              </button>
-              {/* Unticking is "not this time"; this is "stop asking". Both
-                  are wanted — one for a piece you're not ready to file, one
-                  for a picture that will never be your work. */}
-              <button
-                onClick={() => neverAgain(m)}
-                className="shrink-0 text-[11px] text-zinc-500 hover:text-red-600 hover:underline dark:hover:text-red-400"
-                title="Don't offer this picture again"
-              >
-                Never
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {viewing && (
-        <ImageViewer
-          loc={sourceLoc}
-          path={viewing.path}
-          title={viewing.name}
-          onClose={() => setViewing(null)}
-        />
-      )}
-
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
-    </div>
-  )
 }
