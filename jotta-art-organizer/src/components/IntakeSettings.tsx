@@ -18,6 +18,7 @@ import {
   pruneSetAside,
   intakeSources,
   folderLabel,
+  artTools,
   type Leftovers,
   type FolderRef,
   type IntakeConfig,
@@ -51,6 +52,9 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
   const [leftovers, setLeftovers] = useState<Leftovers | null>(null)
   const [checking, setChecking] = useState(false)
   const [confirmingFolders, setConfirmingFolders] = useState(false)
+  // Held while being typed in, so a half-typed name isn't saved a letter at
+  // a time. Null means "whatever is stored".
+  const [toolsDraft, setToolsDraft] = useState<string | null>(null)
   // One line saying what's happening, rather than a flag per job: only one of
   // these runs at a time, and they're all "wait, it's working".
   const [working, setWorking] = useState<string | null>(null)
@@ -194,15 +198,16 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
   if (!loaded) return null
 
   const sources = config ? intakeSources(config) : []
+  const toolsText = toolsDraft ?? (config ? artTools(config).join(', ') : '')
 
   return (
     <section className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
       <h2 className="text-sm font-medium">Filing new artwork</h2>
       <p className="mt-1 text-xs text-zinc-500">
         When you open the app it can look through the pictures your iPad has backed up, pick out the ones
-        PicsArt or an AI tool made, and offer to file them with your artwork. It reads what the files
-        themselves record, so it doesn&rsquo;t depend on how they&rsquo;re named — and it always asks before
-        touching anything.
+        made in your own tools, and offer to file them with your artwork. It reads what the files
+        themselves record about the program that made them, so it doesn&rsquo;t depend on how they&rsquo;re
+        named — and it always asks before touching anything.
       </p>
 
       <dl className="mt-3 flex flex-col gap-2 text-xs">
@@ -313,6 +318,33 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
         <span className={!config?.source || !config?.dest ? 'text-zinc-400' : undefined}>
           Look for new artwork when the app opens
           {(!config?.source || !config?.dest) && <span className="block">Set both folders first.</span>}
+        </span>
+      </label>
+
+      {/* Which programs make her work is hers to say. The app had been
+          treating any signed claim of AI involvement as artwork, which files
+          a photograph touched up on a phone as a piece. */}
+      <label className="mt-3 block text-xs">
+        <span className="text-zinc-500">Her work is whatever these made</span>
+        <input
+          value={toolsText}
+          disabled={!config}
+          onChange={(e) => setToolsDraft(e.target.value)}
+          onBlur={() => {
+            if (!config) return
+            const next = toolsText
+              .split(',')
+              .map((t) => t.trim())
+              .filter(Boolean)
+            if (next.join(',') !== artTools(config).join(',')) void persist({ ...config, artTools: next })
+          }}
+          placeholder="PicsArt"
+          className="mt-1 w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
+        />
+        <span className="mt-1 block text-zinc-500">
+          Separated by commas, matched against whatever the file says made it — its program name, its
+          credit, its content credentials. A picture counts as hers when one of these made it, drawn or
+          generated alike; AI having been involved is not on its own a reason to file anything.
         </span>
       </label>
 
