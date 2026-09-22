@@ -4,6 +4,10 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const LINKS = [
+  // First, and named for the question rather than for a tool: the app grew
+  // an entry point per problem, and this is the one page that says which of
+  // them you actually need and in what order.
+  { href: '/plan', label: 'To do' },
   { href: '/import', label: 'Import' },
   { href: '/dedupe', label: 'Dedupe' },
   { href: '/copy', label: 'Copy' },
