@@ -35,6 +35,11 @@ type Probe = {
 
 type Sort = 'name' | 'created-desc' | 'created-asc' | 'modified-desc'
 
+/** How many thumbnails to put on screen at once. Each one is a request to
+ *  Jottacloud, and a Google Photos export drops thousands of files into a
+ *  single folder. */
+const PAGE = 120
+
 function changedAt(file: JottaEntry): number {
   return jottaTime(file.modified) || jottaTime(file.created)
 }
@@ -78,6 +83,10 @@ export default function InspectPage() {
   } | null>(null)
   const [sort, setSort] = useState<Sort>('name')
   const [typedName, setTypedName] = useState('')
+  const [nameFilter, setNameFilter] = useState('')
+  // Keyed rather than reset in an effect: changing folder or filter starts
+  // the count over without a render that briefly shows the old one.
+  const [limitFor, setLimitFor] = useState<{ key: string; n: number }>({ key: '', n: PAGE })
   const [selected, setSelected] = useState<JottaEntry | null>(null)
   const [probe, setProbe] = useState<Probe | null>(null)
   const [fileProps, setFileProps] = useState<ArtworkFileMetadata | null>(null)
@@ -167,6 +176,15 @@ export default function InspectPage() {
     const path = typed.includes('/') ? typed : [location.path, typed].filter(Boolean).join('/')
     inspect({ name: path.split('/').pop() ?? typed, path, isFolder: false })
   }
+
+  // Narrowed by name first, then sorted, then cut to what's on screen — the
+  // cut is what keeps a 13,000-file export from asking for 13,000 thumbnails.
+  const listKey = `${location?.device}/${location?.mountpoint}/${location?.path ?? ''}|${nameFilter}`
+  const needle = nameFilter.trim().toLowerCase()
+  const matching = needle
+    ? (files ?? []).filter((f) => f.name.toLowerCase().includes(needle))
+    : files ?? []
+  const visible = sortFiles(matching, sort).slice(0, limitFor.key === listKey ? limitFor.n : PAGE)
 
   if (session === null) {
     return <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">Loading…</div>
@@ -281,11 +299,24 @@ export default function InspectPage() {
               <option value="created-asc">Oldest first</option>
               <option value="modified-desc">Recently changed</option>
             </select>
-            <span className="text-zinc-400">{files.length} pictures</span>
+            {/* A folder of thousands is normal here — a Google Photos export
+                puts everything in one — so the only way to reach a particular
+                picture is to name it. */}
+            <input
+              value={nameFilter}
+              onChange={(e) => setNameFilter(e.target.value)}
+              placeholder="Filter by name…"
+              className="min-w-0 flex-1 rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+            />
+            <span className="text-zinc-400">
+              {matching.length === files.length
+                ? `${files.length.toLocaleString()} pictures`
+                : `${matching.length.toLocaleString()} of ${files.length.toLocaleString()}`}
+            </span>
           </div>
 
           <ul className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-            {sortFiles(files, sort).map((f) => (
+            {visible.map((f) => (
               <li key={f.path}>
                 <button
                   onClick={() => inspect(f)}
@@ -300,6 +331,18 @@ export default function InspectPage() {
               </li>
             ))}
           </ul>
+
+          {/* Every tile is a thumbnail request, so a folder of 13,000 used to
+              mean 13,000 of them at once — which is why a picture that was
+              there all along never appeared. */}
+          {matching.length > visible.length && (
+            <button
+              onClick={() => setLimitFor({ key: listKey, n: visible.length + PAGE })}
+              className="self-start text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+            >
+              Showing {visible.length.toLocaleString()} of {matching.length.toLocaleString()} — show more
+            </button>
+          )}
         </>
       )}
 
