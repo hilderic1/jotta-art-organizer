@@ -35,7 +35,21 @@ export type MissingPhoto = {
    *  content could be found — perhaps it's in the trash only, or kept
    *  somewhere this check didn't look. */
   removedHere?: boolean
+  /** How many live files anywhere in this mountpoint carry that name. More
+   *  than none means the picture may well be here and simply couldn't be
+   *  proved to be — which is a different thing from Google holding the only
+   *  copy, and calls for a different decision. */
+  nameElsewhere?: number
+  /** Nothing can read a capture time out of a video, so the name-and-time
+   *  route is closed to one however plainly it is sitting there. Said
+   *  outright rather than left to be inferred from the extension. */
+  isVideo?: boolean
 }
+
+// What Google's export puts beside a record that this check reads image
+// headers for. Anything else can only be vouched for by content or by
+// another record of the same photo.
+const VIDEO_EXT = /\.(mov|mp4|m4v|avi|3gp|mkv|webm|mpg|mpeg|wmv)$/i
 
 export type IncompletePhoto = { name: string; folder: string; state: string }
 
@@ -380,12 +394,15 @@ export async function checkTakeout(
       if (record?.takenAt) archived.push({ takenAt: record.takenAt, lat: record.lat, lon: record.lon })
       return
     }
+    const elsewhere = liveByName.get(title.toLowerCase())?.length ?? 0
     missing.push({
       title,
       folder,
       takenAt: record?.takenAt,
       uploadedAt: record?.uploadedAt,
       removedHere: removed.length > 0 || undefined,
+      nameElsewhere: elsewhere || undefined,
+      isVideo: VIDEO_EXT.test(title) || undefined,
     })
   })
 

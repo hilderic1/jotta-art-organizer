@@ -68,6 +68,17 @@ export default function TakeoutCheckPage() {
     ? result.keptElsewhere.content + result.keptElsewhere.sameGooglePhoto + result.keptElsewhere.nameAndTime
     : 0
   const safe = result && result.missing.length === 0 && result.incomplete.length === 0 && result.unreadable === 0
+  // Counted once, in one place: a video with a namesake elsewhere is counted
+  // as a video, because that is the reason it couldn't be vouched for.
+  const missingKinds = (result?.missing ?? []).reduce(
+    (acc, m) => {
+      if (m.isVideo) acc.videos++
+      else if (m.nameElsewhere) acc.named++
+      else acc.nowhere++
+      return acc
+    },
+    { videos: 0, named: 0, nowhere: 0 }
+  )
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
@@ -183,14 +194,50 @@ export default function TakeoutCheckPage() {
                 exported that aren&rsquo;t here — keep these in Google Photos
               </h2>
               <p className="mt-1 text-xs text-zinc-500">
-                Google&rsquo;s record is present but the picture beside it isn&rsquo;t, usually from an upload
-                that failed partway. Search for each name in Google Photos and download it again before deleting.
+                Google&rsquo;s record is present but the picture beside it isn&rsquo;t. Search for each name in
+                Google Photos and download it again before deleting.
               </p>
+
+              {/* "Missing" covers three different situations, and only one of
+                  them means Google holds the only copy. Lumping them together
+                  turns a list worth acting on into a number worth ignoring. */}
+              <ul className="mt-2 flex flex-col gap-1 text-xs text-zinc-600 dark:text-zinc-400">
+                {missingKinds.videos > 0 && (
+                  <li>
+                    <strong>{missingKinds.videos.toLocaleString()}</strong> are videos. Nothing can read a
+                    capture time out of a video, so one can only be vouched for by its content — a video
+                    here may well be safely in {folder?.mountpoint} regardless.
+                  </li>
+                )}
+                {missingKinds.named > 0 && (
+                  <li>
+                    <strong>{missingKinds.named.toLocaleString()}</strong> have a file of that name
+                    elsewhere in {folder?.mountpoint} that couldn&rsquo;t be confirmed as the same picture
+                    — usually because it carries no capture time of its own, which is normal for anything
+                    scanned, edited, or older than about 2010. Worth looking at a few by hand before
+                    treating them as lost.
+                  </li>
+                )}
+                {missingKinds.nowhere > 0 && (
+                  <li>
+                    <strong>{missingKinds.nowhere.toLocaleString()}</strong> have no file of that name
+                    anywhere in {folder?.mountpoint}. These are the ones to keep in Google Photos.
+                  </li>
+                )}
+              </ul>
               <ul className="mt-2 max-h-64 overflow-y-auto text-xs">
                 {result.missing.map((m, i) => (
                   <li key={`${m.folder}/${m.title}/${i}`} className="border-b border-zinc-100 py-1 dark:border-zinc-900">
                     <span className="font-medium">{m.title}</span>
                     <span className="text-zinc-500"> — taken {day(m.takenAt)}</span>
+                    {m.isVideo && <span className="text-zinc-500"> · video, no capture time to check</span>}
+                    {m.nameElsewhere ? (
+                      <span className="text-amber-700 dark:text-amber-500">
+                        {' '}
+                        · {m.nameElsewhere} file{m.nameElsewhere === 1 ? '' : 's'} of this name{' '}
+                        {m.nameElsewhere === 1 ? 'is' : 'are'} in {folder?.mountpoint}, unconfirmed
+                      </span>
+                    ) : null}
                     {m.removedHere && (
                       <span className="text-amber-700 dark:text-amber-500">
                         {' '}
