@@ -64,6 +64,26 @@ export type JottaFolderListing = {
   path: string
   folders: JottaEntry[]
   files: JottaEntry[]
+  /**
+   * Jottacloud's own tally for the folder, from the <metadata> element it
+   * ends every listing with, against what we actually parsed out of the same
+   * response.
+   *
+   * These should agree. When they don't, every count this app produces is
+   * wrong in the same direction at once — folders look empty, pictures look
+   * missing, duplicates look unique — so it's worth carrying rather than
+   * inferring later from numbers that all came from the short side.
+   */
+  tally?: {
+    reportedFolders: number
+    reportedFiles: number
+    parsedFolders: number
+    parsedFiles: number
+    /** JFS pages a big folder with first/max; a non-empty `max` means this
+     *  response is a page rather than the lot. */
+    first?: number
+    max?: number
+  }
 }
 
 // `requestPath` (the segments we asked for) is used to build each child's
@@ -126,7 +146,29 @@ function parseFolderXml(xml: string, requestPath: string[], opts?: { includeDele
       }
     })
 
-  return { name, path, folders, files }
+  // Counted before the deleted filter above, so a difference against
+  // Jottacloud's tally means entries we never saw, not entries we chose to
+  // leave out.
+  const rawFolderCount = (Array.isArray(rawFolders) ? rawFolders : [rawFolders]).filter(Boolean).length
+  const rawFileCount = (Array.isArray(rawFiles) ? rawFiles : [rawFiles]).filter(Boolean).length
+  const meta = folder.metadata
+  const num = (value: unknown): number | undefined => {
+    if (value == null || value === '') return undefined
+    const n = Number(value)
+    return Number.isFinite(n) ? n : undefined
+  }
+  const tally: JottaFolderListing['tally'] = meta
+    ? {
+        reportedFolders: num(meta['@_num_folders']) ?? rawFolderCount,
+        reportedFiles: num(meta['@_num_files']) ?? rawFileCount,
+        parsedFolders: rawFolderCount,
+        parsedFiles: rawFileCount,
+        first: num(meta['@_first']),
+        max: num(meta['@_max']),
+      }
+    : undefined
+
+  return { name, path, folders, files, tally }
 }
 
 export type MountpointRef = {

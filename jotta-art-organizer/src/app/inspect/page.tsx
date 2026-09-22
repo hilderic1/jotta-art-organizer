@@ -6,6 +6,7 @@ import {
   getSessionStatus,
   listFolder,
   jottaTime,
+  unreadEntries,
   type SessionStatus,
   type MountpointRef,
   type JottaEntry,
@@ -63,6 +64,17 @@ export default function InspectPage() {
   const [location, setLocation] = useState<(MountpointRef & { path?: string }) | null>(null)
   const [files, setFiles] = useState<JottaEntry[] | null>(null)
   const [listError, setListError] = useState<string | null>(null)
+  // What the folder holds according to Jottacloud, according to the parser,
+  // and after this page's own filtering — three numbers that explain between
+  // them why a folder full of pictures can show up here nearly empty.
+  const [counts, setCounts] = useState<{
+    reportedFiles: number
+    reportedFolders: number
+    parsedFiles: number
+    parsedFolders: number
+    shown: number
+    unread: number
+  } | null>(null)
   const [sort, setSort] = useState<Sort>('name')
   const [typedName, setTypedName] = useState('')
   const [selected, setSelected] = useState<JottaEntry | null>(null)
@@ -91,10 +103,18 @@ export default function InspectPage() {
     setProbe(null)
     listFolder(location, location.path ?? '')
       .then((listing) => {
-        if (!ignore) {
-          setFiles(listing.files.filter((f) => /\.(jpe?g|png|gif|webp|heic)$/i.test(f.name)))
-          setListError(null)
-        }
+        if (ignore) return
+        const shown = listing.files.filter((f) => /\.(jpe?g|png|gif|webp|heic)$/i.test(f.name))
+        setFiles(shown)
+        setCounts({
+          reportedFiles: listing.tally?.reportedFiles ?? listing.files.length,
+          reportedFolders: listing.tally?.reportedFolders ?? listing.folders.length,
+          parsedFiles: listing.tally?.parsedFiles ?? listing.files.length,
+          parsedFolders: listing.tally?.parsedFolders ?? listing.folders.length,
+          shown: shown.length,
+          unread: unreadEntries(listing),
+        })
+        setListError(null)
       })
       .catch((err) => {
         if (!ignore) setListError(err instanceof Error ? err.message : 'Failed to list that folder.')
@@ -216,6 +236,29 @@ export default function InspectPage() {
 
       {listError && <p className="text-sm text-red-600 dark:text-red-400">{listError}</p>}
       {location && files === null && !listError && <p className="text-sm text-zinc-500">Loading folder…</p>}
+
+      {/* Three numbers for one folder: what Jottacloud says is in it, what
+          came out of its answer, and what this page is showing. A folder that
+          looks empty in the app is one of those three being smaller than the
+          one before it, and which one it is says where the fault lies. */}
+      {counts && (
+        <p className="text-xs text-zinc-500">
+          Jottacloud reports {counts.reportedFiles.toLocaleString()} file
+          {counts.reportedFiles === 1 ? '' : 's'} and {counts.reportedFolders.toLocaleString()} folder
+          {counts.reportedFolders === 1 ? '' : 's'} directly in here. This app read{' '}
+          {counts.parsedFiles.toLocaleString()} and {counts.parsedFolders.toLocaleString()}, and is showing{' '}
+          {counts.shown.toLocaleString()} picture{counts.shown === 1 ? '' : 's'} — the rest are files it
+          doesn&rsquo;t treat as pictures.
+          {counts.unread > 0 && (
+            <span className="mt-1 block rounded border border-red-300 bg-red-50 p-2 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+              {counts.unread.toLocaleString()} entr{counts.unread === 1 ? 'y' : 'ies'} Jottacloud reports here
+              never reached this app. Every count it gives you for this folder is short by at least that
+              much, so nothing should be removed or deduplicated on the strength of them.
+            </span>
+          )}
+        </p>
+      )}
+
       {files?.length === 0 && <p className="text-sm text-zinc-500">No pictures directly in this folder.</p>}
 
       {files && files.length > 0 && (

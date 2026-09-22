@@ -87,6 +87,25 @@ export type JottaFolderListing = {
   path: string
   folders: JottaEntry[]
   files: JottaEntry[]
+  /** What Jottacloud says the folder holds, against what we read out of its
+   *  answer. They should agree; see the server-side type for why it matters
+   *  when they don't. */
+  tally?: {
+    reportedFolders: number
+    reportedFiles: number
+    parsedFolders: number
+    parsedFiles: number
+    first?: number
+    max?: number
+  }
+}
+
+/** Entries Jottacloud says are there but this app didn't read. Zero is the
+ *  only good answer; anything else means every count downstream is short. */
+export function unreadEntries(listing: JottaFolderListing): number {
+  if (!listing.tally) return 0
+  const { reportedFolders, reportedFiles, parsedFolders, parsedFiles } = listing.tally
+  return Math.max(0, reportedFolders - parsedFolders) + Math.max(0, reportedFiles - parsedFiles)
 }
 
 export async function listFolder(
