@@ -15,6 +15,13 @@ import {
 } from '@/lib/photoIntake'
 import { describeArrivedFiles } from '@/lib/autoDescribe'
 
+// Whether this visit to the app has already looked. Deliberately outside the
+// component: the banner only exists on the Catalogue's folder-picking screen,
+// so choosing a folder takes it away and coming back builds it anew. Without
+// this, every return to that screen would set another full walk of both
+// folder trees going.
+let lookedThisVisit = false
+
 /**
  * Offers to file new PicsArt and AI-made pictures out of the iPad's backup.
  *
@@ -26,6 +33,7 @@ import { describeArrivedFiles } from '@/lib/autoDescribe'
 export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
   const [config, setConfig] = useState<IntakeConfig | null>(null)
   const [scanning, setScanning] = useState(false)
+  const [stopping, setStopping] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [matches, setMatches] = useState<IntakeMatch[] | null>(null)
   const [strays, setStrays] = useState<IntakeMatch[]>([])
@@ -46,13 +54,17 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
   const [described, setDescribed] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [dismissed, setDismissed] = useState(false)
-  // React runs effects twice in development; a scan is expensive enough that
-  // doing it once matters even there.
-  const started = useRef(false)
   const alive = useRef(true)
+  // Held so the Skip button — and leaving the screen — can actually call the
+  // walk off rather than only stop listening to it.
+  const stopper = useRef<AbortController | null>(null)
 
   const runScan = useCallback(
     async (loaded: IntakeConfig) => {
+      lookedThisVisit = true
+      const controller = new AbortController()
+      stopper.current = controller
+      setStopping(false)
       setScanning(true)
       setError(null)
       setFiled(null)
@@ -60,18 +72,30 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
       setDismissed(false)
       try {
         const scan = await scanIntake(metadataLoc, loaded, {
+          signal: controller.signal,
           onProgress: (done, total) => {
             if (alive.current) setProgress({ done, total })
           },
         })
         if (!alive.current) return
+        // Half a look is not an answer, so a stopped scan leaves the offer
+        // empty rather than presenting what it happened to reach as the lot.
+        if (scan.stopped) {
+          setMatches(null)
+          setStrays([])
+          return
+        }
         setMatches(scan.matches)
         setStrays(scan.strays)
         setRemaining(scan.remaining)
       } catch (err) {
         if (alive.current) setError(err instanceof Error ? err.message : 'Could not look for new artwork.')
       } finally {
-        if (alive.current) setScanning(false)
+        if (stopper.current === controller) stopper.current = null
+        if (alive.current) {
+          setScanning(false)
+          setStopping(false)
+        }
       }
     },
     [metadataLoc]
@@ -79,25 +103,28 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
 
   useEffect(() => {
     alive.current = true
-    if (!started.current) {
-      started.current = true
-      loadIntakeConfig(metadataLoc)
-        .then((loaded) => {
-          if (!alive.current || !loaded) return
-          setConfig(loaded)
-          // The switch governs looking on its own; asking for a look is
-          // always allowed, which is why the config is kept either way.
-          if (loaded.enabled) return runScan(loaded)
-        })
-        .catch(() => {
-          // No configuration, or it couldn't be read: the rest of the app is
-          // unaffected, so this stays quiet rather than raising an error about
-          // a feature that may never have been set up.
-        })
-    }
+    let cancelled = false
+    loadIntakeConfig(metadataLoc)
+      .then((loaded) => {
+        if (cancelled || !alive.current || !loaded) return
+        // Kept whether or not it looks: the switch governs looking on its
+        // own, while asking for a look is always allowed.
+        setConfig(loaded)
+        if (loaded.enabled && !lookedThisVisit) return runScan(loaded)
+      })
+      .catch(() => {
+        // No configuration, or it couldn't be read: the rest of the app is
+        // unaffected, so this stays quiet rather than raising an error about
+        // a feature that may never have been set up.
+      })
 
     return () => {
+      cancelled = true
       alive.current = false
+      // Choosing a folder takes this screen away, and a walk nobody is
+      // waiting on is a walk competing with the catalogue for every request.
+      stopper.current?.abort()
+      stopper.current = null
     }
   }, [metadataLoc, runScan])
 
@@ -227,11 +254,28 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
 
   // Quiet while it works: this runs on every start, and a spinner shouting
   // about a background errand every time you open the app would wear thin.
+  // Skipping is a button rather than something you do by leaving the screen:
+  // the walk is long enough to sit through, and choosing a folder to get past
+  // it used to abandon the look without ever saying so.
   if (scanning) {
     return (
-      <p className="text-xs text-zinc-400">
-        Looking for new artwork in {sourceName}
-        {progress && progress.total > 0 ? ` — ${progress.done} of ${progress.total} checked` : '…'}
+      <p className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+        <span>
+          Looking for new artwork in {sourceName}
+          {progress && progress.total > 0 ? ` — ${progress.done} of ${progress.total} checked` : '…'}
+        </span>
+        <button
+          onClick={() => {
+            setStopping(true)
+            stopper.current?.abort()
+          }}
+          disabled={stopping}
+          className="text-indigo-700 hover:underline disabled:opacity-50 dark:text-indigo-300"
+        >
+          {/* Requests already sent still have to come back, so this says what
+              is happening rather than appearing to hang. */}
+          {stopping ? 'Stopping…' : 'Skip for now'}
+        </button>
       </p>
     )
   }

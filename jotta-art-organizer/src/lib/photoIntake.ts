@@ -60,6 +60,9 @@ export type IntakeScan = {
    *  a partial answer never reads as a complete one. */
   remaining: number
   examined: number
+  /** Called off before it finished. What it had already read is kept, but
+   *  what it found is not offered — half a look is not an answer. */
+  stopped: boolean
 }
 
 // PicsArt signs its work in several different places — the editing record it
@@ -162,16 +165,22 @@ const EXAMINE_CONCURRENCY = 6
 export async function scanIntake(
   metadataLoc: MountpointRef,
   config: IntakeConfig,
-  opts?: { onProgress?: (examined: number, total: number) => void }
+  opts?: { onProgress?: (examined: number, total: number) => void; signal?: AbortSignal }
 ): Promise<IntakeScan> {
   const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
   const destLoc = { device: config.dest.device, mountpoint: config.dest.mountpoint }
 
   const [source, dest, examined] = await Promise.all([
-    walkTree(sourceLoc, config.source.path),
-    walkTree(destLoc, config.dest.path),
+    walkTree(sourceLoc, config.source.path, { signal: opts?.signal }),
+    walkTree(destLoc, config.dest.path, { signal: opts?.signal }),
     loadExamined(metadataLoc),
   ])
+
+  // Both walks come back partial when they were called off, and a partial
+  // listing would name pictures as unfiled that simply weren't reached yet.
+  if (opts?.signal?.aborted) {
+    return { matches: [], strays: [], remaining: 0, examined: 0, stopped: true }
+  }
 
   // Already filed, or already judged not to be hers. Content hashes, so a
   // renamed copy is still recognised as the same picture.
@@ -201,6 +210,7 @@ export async function scanIntake(
   let cursor = 0
   async function worker() {
     for (;;) {
+      if (opts?.signal?.aborted) return
       const file: WalkEntry | undefined = batch[cursor++]
       if (!file) return
       let reason: string | null = null
@@ -229,11 +239,24 @@ export async function scanIntake(
   }
 
   await Promise.all(Array.from({ length: EXAMINE_CONCURRENCY }, worker))
+
+  // Saved even when it was called off: every header read is a request that
+  // needn't be made again, so stopping costs nothing already spent.
   await saveExamined(metadataLoc, examined).catch(() => {
     // Losing this costs a repeated scan, never a wrong result.
   })
 
-  return { matches, strays, remaining: candidates.length - batch.length, examined: batch.length }
+  if (opts?.signal?.aborted) {
+    return { matches: [], strays: [], remaining: 0, examined: done, stopped: true }
+  }
+
+  return {
+    matches,
+    strays,
+    remaining: candidates.length - batch.length,
+    examined: batch.length,
+    stopped: false,
+  }
 }
 
 export type IntakeResult = {

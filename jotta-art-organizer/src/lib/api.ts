@@ -202,7 +202,7 @@ export type WalkResult = { files: WalkEntry[]; folderRelPaths: string[] }
 export async function walkTree(
   loc: MountpointRef,
   rootPath: string,
-  opts?: { concurrency?: number; onFolder?: (relPath: string) => void }
+  opts?: { concurrency?: number; onFolder?: (relPath: string) => void; signal?: AbortSignal }
 ): Promise<WalkResult> {
   const concurrency = opts?.concurrency ?? 4
   const files: WalkEntry[] = []
@@ -236,8 +236,12 @@ export async function walkTree(
 
   await new Promise<void>((resolve) => {
     function pump() {
-      if (error) {
-        resolve()
+      // Asked to stop: the listings already out will finish, but nothing
+      // further is asked for. A walk of a photo library is minutes of
+      // requests, so being able to call it off is the difference between
+      // "skip" meaning skipped and meaning hidden.
+      if (error || opts?.signal?.aborted) {
+        if (inFlight === 0) resolve()
         return
       }
       while (queue.length > 0 && inFlight < concurrency) {
