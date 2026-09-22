@@ -18,7 +18,7 @@ function label(folder: FolderRef | null): string {
 }
 
 /**
- * Where new pictures arrive, and where her work is kept.
+ * Where new artwork and photos arrive, and where her work is kept.
  *
  * Two folders and a switch. It lives in Setup rather than the Catalogue
  * because it's set once and then forgotten — the Catalogue only acts on it.
@@ -83,7 +83,7 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
 
   return (
     <section className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-      <h2 className="text-sm font-medium">Filing new work</h2>
+      <h2 className="text-sm font-medium">Filing new artwork</h2>
       <p className="mt-1 text-xs text-zinc-500">
         When you open the app it can look through the pictures your iPad has backed up, pick out the ones
         PicsArt or an AI tool made, and offer to file them with your artwork. It reads what the files
@@ -94,7 +94,7 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
       <dl className="mt-3 flex flex-col gap-2 text-xs">
         <div className="flex items-center justify-between gap-2">
           <span>
-            <dt className="inline text-zinc-500">New pictures arrive in </dt>
+            <dt className="inline text-zinc-500">New artwork and photos arrive in </dt>
             <dd className="inline font-medium">{label(config?.source ?? null)}</dd>
           </span>
           <button
@@ -108,8 +108,11 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
 
         <div className="flex items-center justify-between gap-2">
           <span>
+            {/* "them" read as everything in the folder above. Only the
+                pictures that say they were made in PicsArt or by an AI tool
+                are ever touched; the photographs stay where they are. */}
             <dt className="inline text-zinc-500">
-              {config?.mode === 'move' ? 'Move them to ' : 'Copy them to '}
+              {config?.mode === 'move' ? 'Move the artwork to ' : 'Copy the artwork to '}
             </dt>
             <dd className="inline font-medium">{label(config?.dest ?? null)}</dd>
           </span>
@@ -166,7 +169,7 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
           onChange={(e) => config && void persist({ ...config, enabled: e.target.checked })}
         />
         <span className={!config?.source || !config?.dest ? 'text-zinc-400' : undefined}>
-          Look for new work when the app opens
+          Look for new artwork when the app opens
           {(!config?.source || !config?.dest) && <span className="block">Set both folders first.</span>}
         </span>
       </label>

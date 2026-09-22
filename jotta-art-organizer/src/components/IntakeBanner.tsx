@@ -69,7 +69,7 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
         setStrays(scan.strays)
         setRemaining(scan.remaining)
       } catch (err) {
-        if (alive.current) setError(err instanceof Error ? err.message : 'Could not look for new pictures.')
+        if (alive.current) setError(err instanceof Error ? err.message : 'Could not look for new artwork.')
       } finally {
         if (alive.current) setScanning(false)
       }
@@ -219,7 +219,7 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
       disabled={scanning || filing || tidying !== null}
       className="text-xs text-indigo-700 hover:underline disabled:opacity-50 dark:text-indigo-300"
     >
-      Look for PicsArt work now
+      Look for new artwork now
     </button>
   )
 
@@ -230,7 +230,7 @@ export function IntakeBanner({ metadataLoc }: { metadataLoc: MountpointRef }) {
   if (scanning) {
     return (
       <p className="text-xs text-zinc-400">
-        Looking for new pictures in {sourceName}
+        Looking for new artwork in {sourceName}
         {progress && progress.total > 0 ? ` — ${progress.done} of ${progress.total} checked` : '…'}
       </p>
     )
