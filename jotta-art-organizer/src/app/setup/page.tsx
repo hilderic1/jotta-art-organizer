@@ -71,6 +71,21 @@ export default function SetupPage() {
           </Link>
         </section>
 
+        {/* Here rather than in the nav: none of it is part of using the app,
+            and a permanent "to do" for jobs that mostly don't apply is a
+            standing reproach for nothing. */}
+        <section className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+          <h2 className="text-sm font-medium">Sorting out a library</h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            A handful of jobs for particular situations — pictures that were already in the archive
+            before the app watched it, a fresh export from Google, a batch copied in from somewhere
+            else. What each one is for, when it applies, and the order to do them in if several do.
+          </p>
+          <Link href="/plan" className="mt-2 inline-block text-sm text-indigo-600 hover:underline dark:text-indigo-400">
+            Jobs, and when they apply →
+          </Link>
+        </section>
+
         <section>
           <h2 className="mb-2 text-sm font-medium text-zinc-600 dark:text-zinc-400">Browse your Archive</h2>
           <FolderBrowser />

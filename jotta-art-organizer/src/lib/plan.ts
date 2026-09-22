@@ -27,34 +27,59 @@ const PLAN_FILENAME = 'plan.json'
 
 export type StepId = 'export-check' | 'describe' | 'sweep' | 'sidecars' | 'leftovers' | 'dedupe'
 
+/**
+ * Whether a job comes round again, and on what.
+ *
+ * Worth distinguishing, because "one-time cleanup" is only true of some of
+ * these. Most are not chores on a schedule but answers to an event — and an
+ * event that hasn't happened needs no answer.
+ */
+export type Trigger = 'once' | 'new-export' | 'bulk-arrival' | 'housekeeping'
+
 export type PlanStep = {
   id: StepId
   title: string
   /** Why it is where it is in the order. Every one of these is a reason
    *  something would go wrong if it were done earlier or later. */
   why: string
+  trigger: Trigger
+  /** The circumstance that calls for it, in words. */
+  when: string
   href: string
   where: string
+}
+
+export const TRIGGER_HEADINGS: Record<Trigger, string> = {
+  once: 'Once, because of how the library got here',
+  'new-export': 'Each time you take a new Google Takeout export',
+  'bulk-arrival': 'When a batch of pictures arrives some other way',
+  housekeeping: 'Now and then, if it bothers you',
 }
 
 export const PLAN: PlanStep[] = [
   {
     id: 'export-check',
-    title: 'Check the Google Photos export arrived',
-    why: 'First, because the later steps move pictures and remove sidecars — both of which change what this check counts.',
+    title: 'Check the export arrived',
+    trigger: 'new-export',
+    when: 'Before deleting anything from Google Photos, on each new export. Not otherwise — it changes nothing and tells you nothing you need unless you are about to delete.',
+    why: 'First of the export jobs, because the later ones move pictures and remove sidecars, and both change what this check counts.',
     href: '/takeout',
     where: 'Before deleting from Google Photos',
   },
   {
     id: 'describe',
-    title: 'Describe the export in bulk',
-    why: 'Before anything is moved. Google keeps a picture’s date and place in a file beside it, and filing separates the two; read now, it is held against the picture’s content for good.',
+    title: 'Describe a new batch in bulk',
+    trigger: 'bulk-arrival',
+    when: 'For pictures that arrive any way other than the app filing them — a new export, a folder copied in from elsewhere, anything uploaded to Jottacloud directly. Anything the app files is described as it lands, so that needs nothing.',
+    why: 'Before the pictures are moved. Google keeps a picture’s date and place in a file beside it, and moving separates the two; read now, it is held against the picture’s content for good.',
     href: '/catalogue',
     where: 'Catalogue → Describe in bulk',
   },
   {
     id: 'sweep',
-    title: 'File the artwork out of the photographs',
+    title: 'File the artwork already sitting in the archive',
+    trigger: 'once',
+    when: 'Once per folder that was filling up before the app watched it. New work is found on its own when you open the app, so this is the backlog and nothing else.',
     why: 'After describing, so each piece arrives already knowing its date and place.',
     href: '/catalogue',
     where: 'Catalogue → Look for new artwork now',
@@ -62,25 +87,35 @@ export const PLAN: PlanStep[] = [
   {
     id: 'sidecars',
     title: 'Recover sidecars left behind',
-    why: 'After filing, because filing is what leaves them behind — and after the export check, because clearing them changes what that check counts.',
+    trigger: 'once',
+    when: 'Only for pictures filed before filing learned to read the sidecar where the picture came from. Nothing filed from now on leaves one behind, so this should never be needed twice.',
+    why: 'After filing, because filing is what left them behind — and after the export check, because clearing them changes what that check counts.',
     href: '/takeout',
     where: 'Before deleting from Google Photos → Sidecars left behind',
   },
   {
     id: 'leftovers',
     title: 'Clear out what moving left behind',
-    why: 'Empty folders and decisions about pictures that have gone. Last of the filing jobs, since each earlier one creates more of both.',
+    trigger: 'housekeeping',
+    when: 'Empty folders and decisions about pictures that have gone. Nothing depends on it and nothing breaks without it — it is tidiness, for when the clutter starts to show.',
+    why: 'After the filing jobs, since each of them makes more of both.',
     href: '/setup',
     where: 'Setup → Filing new artwork',
   },
   {
     id: 'dedupe',
     title: 'Find the duplicates',
-    why: 'Last. Deduplicating earlier would remove copies the other steps still needed to find.',
+    trigger: 'bulk-arrival',
+    when: 'After a batch arrives from a source that overlaps what you already have — two exports of the same library, a Dropbox folder and a Google one holding the same photographs.',
+    why: 'Last. Deduplicating earlier removes copies the other jobs still needed in order to find things.',
     href: '/dedupe',
     where: 'Dedupe',
   },
 ]
+
+/** The order they must be done in when several apply at once. The grouping
+ *  is by circumstance; this is by dependency, and they are not the same. */
+export const ORDER: StepId[] = PLAN.map((s) => s.id)
 
 type PlanState = { done: Partial<Record<StepId, string>> }
 
