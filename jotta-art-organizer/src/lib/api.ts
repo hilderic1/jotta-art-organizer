@@ -151,14 +151,25 @@ export async function createFolder(loc: MountpointRef, path: string): Promise<Jo
   return data
 }
 
-export async function deleteFile(loc: MountpointRef, path: string, retries: number = 3): Promise<void> {
+/** Soft-deletes a folder and everything in it — it goes to Jottacloud's
+ *  trash, exactly as a file does. */
+export async function deleteFolder(loc: MountpointRef, path: string): Promise<void> {
+  return deleteFile(loc, path, 3, 'folder')
+}
+
+export async function deleteFile(
+  loc: MountpointRef,
+  path: string,
+  retries: number = 3,
+  kind: 'file' | 'folder' = 'file'
+): Promise<void> {
   let lastError: Error | null = null
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch('/api/files/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device: loc.device, mountpoint: loc.mountpoint, path }),
+        body: JSON.stringify({ device: loc.device, mountpoint: loc.mountpoint, path, kind }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to delete file.')

@@ -9,8 +9,14 @@ import {
   countNotArtwork,
   forgetNotArtwork,
   loadIntakeLog,
+  appendIntakeLog,
   summariseRun,
+  runLabel,
   runNeeds,
+  findLeftovers,
+  removeEmptyFolders,
+  pruneSetAside,
+  type Leftovers,
   type FolderRef,
   type IntakeConfig,
   type IntakeLogEntry,
@@ -37,6 +43,12 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
   const [forgetting, setForgetting] = useState(false)
   const [runs, setRuns] = useState<IntakeLogEntry[]>([])
   const [showRuns, setShowRuns] = useState(false)
+  const [leftovers, setLeftovers] = useState<Leftovers | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [confirmingFolders, setConfirmingFolders] = useState(false)
+  // One line saying what's happening, rather than a flag per job: only one of
+  // these runs at a time, and they're all "wait, it's working".
+  const [working, setWorking] = useState<string | null>(null)
 
   useEffect(() => {
     let ignore = false
@@ -72,6 +84,72 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
       setError(err instanceof Error ? err.message : 'Could not save.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function checkLeftovers() {
+    if (!config) return
+    setChecking(true)
+    setError(null)
+    setConfirmingFolders(false)
+    try {
+      setLeftovers(await findLeftovers(metadataLoc, config))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not go through the photo folder.')
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  // Both of these end by looking again rather than adjusting the numbers on
+  // screen: what's left is a question about the folder, and the folder has
+  // just changed.
+  async function removeFolders() {
+    if (!config || !leftovers) return
+    setConfirmingFolders(false)
+    setError(null)
+    setWorking('Removing empty folders…')
+    try {
+      const result = await removeEmptyFolders(config, leftovers.emptyFolders, {
+        onProgress: (done, total) => setWorking(`Removing empty folders — ${done} of ${total}`),
+      })
+      const entry: IntakeLogEntry = {
+        at: new Date().toISOString(),
+        kind: 'folders',
+        foldersRemoved: result.removed,
+        failed: result.failed.length,
+      }
+      setRuns(await appendIntakeLog(metadataLoc, entry).catch(() => [entry, ...runs]))
+      if (result.failed.length > 0) {
+        setError(`${result.failed.length} could not be removed: ${result.failed[0].error}`)
+      }
+      setWorking('Checking what is left…')
+      setLeftovers(await findLeftovers(metadataLoc, config))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove the folders.')
+    } finally {
+      setWorking(null)
+    }
+  }
+
+  async function prune() {
+    if (!config) return
+    setError(null)
+    setWorking('Going through the decisions…')
+    try {
+      const result = await pruneSetAside(metadataLoc, config)
+      setSetAside(result.kept)
+      const entry: IntakeLogEntry = {
+        at: new Date().toISOString(),
+        kind: 'forget',
+        forgotten: result.forgotten,
+      }
+      setRuns(await appendIntakeLog(metadataLoc, entry).catch(() => [entry, ...runs]))
+      setLeftovers(await findLeftovers(metadataLoc, config))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not go through the decisions.')
+    } finally {
+      setWorking(null)
     }
   }
 
@@ -194,7 +272,7 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
               next source line has its leading space trimmed away, which is how
               this came to read "5,665 picturesset aside". */}
           {setAside.toLocaleString()} picture{setAside === 1 ? '' : 's'}{' '}
-          set aside as not your work — they won&rsquo;t be offered again.{' '}
+          examined and found not to be your work — left where they are, and not offered again.{' '}
           <button
             onClick={async () => {
               setForgetting(true)
@@ -213,6 +291,89 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
             {forgetting ? 'Clearing…' : 'Look at them again'}
           </button>
         </p>
+      )}
+
+      {/* What moving leaves behind. Neither of these is found without walking
+          the photo folder, which is minutes of requests, so it's asked for
+          rather than worked out every time this page opens. */}
+      {config?.source && (
+        <div className="mt-3 rounded border border-zinc-200 p-2 text-xs dark:border-zinc-800">
+          <p className="text-zinc-500">
+            Moving pictures out leaves their folders behind, and leaves decisions recorded about
+            pictures that are no longer there.
+          </p>
+          {leftovers === null ? (
+            <button
+              onClick={checkLeftovers}
+              disabled={checking}
+              className="mt-1 text-indigo-600 hover:underline disabled:opacity-50 dark:text-indigo-400"
+            >
+              {checking ? 'Going through the photo folder…' : 'Check what has been left behind'}
+            </button>
+          ) : (
+            <div className="mt-1 flex flex-col gap-2">
+              <p className="text-zinc-500">
+                {leftovers.pictures.toLocaleString()} picture
+                {leftovers.pictures === 1 ? '' : 's'} in {leftovers.folders.toLocaleString()} folder
+                {leftovers.folders === 1 ? '' : 's'}.{' '}
+                {leftovers.emptyFoldersTotal > 0
+                  ? `${leftovers.emptyFoldersTotal.toLocaleString()} of those folders hold no pictures at all.`
+                  : 'No empty folders.'}{' '}
+                {leftovers.setAsideStale > 0
+                  ? `${leftovers.setAsideStale.toLocaleString()} of the ${leftovers.setAsideTotal.toLocaleString()} decisions are about pictures no longer in there.`
+                  : 'Every decision is about a picture still in there.'}
+              </p>
+
+              {leftovers.emptyFolders.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {confirmingFolders ? (
+                    <>
+                      <button
+                        onClick={removeFolders}
+                        disabled={working !== null}
+                        className="rounded bg-amber-600 px-2 py-1 font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+                      >
+                        Yes, remove {leftovers.emptyFoldersTotal.toLocaleString()} empty folder
+                        {leftovers.emptyFoldersTotal === 1 ? '' : 's'}
+                      </button>
+                      <button onClick={() => setConfirmingFolders(false)} className="text-zinc-600 dark:text-zinc-400">
+                        Cancel
+                      </button>
+                      <span className="text-zinc-500">
+                        They go to Jottacloud&rsquo;s trash. Only folders with no picture anywhere beneath
+                        them are touched.
+                      </span>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmingFolders(true)}
+                      disabled={working !== null}
+                      className="rounded bg-amber-600 px-2 py-1 font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+                    >
+                      Remove the empty folders
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {leftovers.setAsideStale > 0 && (
+                <button
+                  onClick={prune}
+                  disabled={working !== null}
+                  className="self-start text-indigo-600 hover:underline disabled:opacity-50 dark:text-indigo-400"
+                >
+                  Forget the {leftovers.setAsideStale.toLocaleString()} decision
+                  {leftovers.setAsideStale === 1 ? '' : 's'} about pictures that have gone
+                </button>
+              )}
+
+              {working && <p className="text-zinc-400">{working}</p>}
+              <button onClick={checkLeftovers} disabled={working !== null} className="self-start text-zinc-500 hover:underline disabled:opacity-50">
+                Check again
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Every run leaves a line here. The banner that reports a run lives on
@@ -236,8 +397,7 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
                   <li key={entry.at} className="flex flex-wrap gap-x-2 text-zinc-500">
                     <span className="text-zinc-400">{new Date(entry.at).toLocaleString()}</span>
                     <span>
-                      {entry.kind === 'look' ? 'Looked' : entry.kind === 'file' ? 'Filed' : 'Tidied'} —{' '}
-                      {summariseRun(entry)}
+                      {runLabel(entry.kind)} — {summariseRun(entry)}
                       {needs?.where === 'look' && (
                         <span className="block text-amber-700 dark:text-amber-500">{needs.what}</span>
                       )}

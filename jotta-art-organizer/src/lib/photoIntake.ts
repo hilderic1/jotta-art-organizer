@@ -15,6 +15,7 @@ import {
   walkTree,
   copyFile,
   deleteFile,
+  deleteFolder,
   listFolder,
   type MountpointRef,
   type WalkEntry,
@@ -121,7 +122,7 @@ export function artworkReason(meta: ArtworkFileMetadata | null): string | null {
 // exactly the sort of thing you want to be able to look up afterwards.
 export type IntakeLogEntry = {
   at: string
-  kind: 'look' | 'file' | 'tidy'
+  kind: 'look' | 'file' | 'tidy' | 'folders' | 'forget'
   /** Absent members didn't apply to that kind of run, rather than being zero. */
   folders?: number
   pictures?: number
@@ -135,6 +136,10 @@ export type IntakeLogEntry = {
   described?: number
   failed?: number
   stopped?: boolean
+  /** Empty folders removed from the photo folder. */
+  foldersRemoved?: number
+  /** Decisions dropped because the picture is no longer in the photo folder. */
+  forgotten?: number
 }
 
 // Enough to answer "what happened last time?" without becoming a file that
@@ -156,6 +161,24 @@ export async function appendIntakeLog(
   const runs = [entry, ...(await loadIntakeLog(metadataLoc))].slice(0, LOG_LIMIT)
   await writeJsonFile(metadataLoc, INTAKE_FOLDER, LOG_FILENAME, { runs })
   return runs
+}
+
+/** What to call each kind of run. A switch over the union rather than a
+ *  chain of ternaries, so adding a kind can't quietly leave it wearing an
+ *  older kind's name in a list of them. */
+export function runLabel(kind: IntakeLogEntry['kind']): string {
+  switch (kind) {
+    case 'look':
+      return 'Looked'
+    case 'file':
+      return 'Filed'
+    case 'tidy':
+      return 'Tidied'
+    case 'folders':
+      return 'Removed empty folders'
+    case 'forget':
+      return 'Forgot old decisions'
+  }
 }
 
 /**
@@ -189,6 +212,16 @@ export function summariseRun(entry: IntakeLogEntry): string {
     if (entry.described) parts.push(`${entry.described.toLocaleString()} described`)
     if (entry.failed) parts.push(`${entry.failed.toLocaleString()} failed`)
     return parts.join(', ')
+  }
+  if (entry.kind === 'folders') {
+    const parts = [
+      `${(entry.foldersRemoved ?? 0).toLocaleString()} empty folder${entry.foldersRemoved === 1 ? '' : 's'} removed`,
+    ]
+    if (entry.failed) parts.push(`${entry.failed.toLocaleString()} could not be removed`)
+    return parts.join(', ')
+  }
+  if (entry.kind === 'forget') {
+    return `${(entry.forgotten ?? 0).toLocaleString()} decision${entry.forgotten === 1 ? '' : 's'} dropped for pictures no longer in the photo folder`
   }
   const parts = [`${(entry.removed ?? 0).toLocaleString()} already-filed pictures taken out of the photos`]
   if (entry.failed) parts.push(`${entry.failed.toLocaleString()} could not be removed`)
@@ -503,6 +536,128 @@ export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): 
   }
 
   return { copied, failed, copiedPaths, removed, removeFailed }
+}
+
+export type Leftovers = {
+  /** Folders with no picture anywhere beneath them, each one the top of an
+   *  empty stretch — deleting it takes the empty folders under it too. */
+  emptyFolders: string[]
+  /** Everything empty, including the ones covered by a parent above. Counted
+   *  because "9 folders" would badly understate 451 of them going. */
+  emptyFoldersTotal: number
+  pictures: number
+  folders: number
+  setAsideTotal: number
+  /** Set aside, but no longer in the photo folder at all — decisions about
+   *  pictures that have since been moved or deleted. */
+  setAsideStale: number
+}
+
+function parentOf(relPath: string): string {
+  const cut = relPath.lastIndexOf('/')
+  return cut === -1 ? '' : relPath.slice(0, cut)
+}
+
+/**
+ * What filing has left behind in the photo folder: folders emptied by moving
+ * their contents out, and decisions recorded about pictures that are no
+ * longer there.
+ *
+ * One walk answers both, because both are questions about what is in the
+ * source folder now as against what used to be.
+ */
+export async function findLeftovers(
+  metadataLoc: MountpointRef,
+  config: IntakeConfig,
+  opts?: { signal?: AbortSignal }
+): Promise<Leftovers> {
+  const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
+  const [source, examined] = await Promise.all([
+    walkTree(sourceLoc, config.source.path, { signal: opts?.signal }),
+    loadExamined(metadataLoc),
+  ])
+
+  // Every folder on the way up from a picture holds a picture, so far as
+  // emptying goes: a folder is only empty when nothing beneath it is a file.
+  const holdsPictures = new Set<string>([''])
+  for (const file of source.files) {
+    let folder = parentOf(file.relPath)
+    for (;;) {
+      if (holdsPictures.has(folder)) break
+      holdsPictures.add(folder)
+      if (folder === '') break
+      folder = parentOf(folder)
+    }
+  }
+
+  const empty = source.folderRelPaths.filter((rel) => !holdsPictures.has(rel))
+  // Only the top of each empty stretch: deleting a folder takes what's under
+  // it, so listing the children as well would be asking for the same work
+  // twice and, worse, asking for it after it's already been done.
+  const tops = empty.filter((rel) => holdsPictures.has(parentOf(rel)))
+
+  const present = new Set(source.files.map((f) => f.md5))
+  let stale = 0
+  for (const md5 of examined) if (!present.has(md5)) stale++
+
+  return {
+    emptyFolders: tops.map((rel) => [config.source.path, rel].filter(Boolean).join('/')),
+    emptyFoldersTotal: empty.length,
+    pictures: source.files.length,
+    folders: source.folderRelPaths.length + 1,
+    setAsideTotal: examined.size,
+    setAsideStale: stale,
+  }
+}
+
+/** Removes the folders `findLeftovers` found empty. They go to the trash. */
+export async function removeEmptyFolders(
+  config: IntakeConfig,
+  folders: string[],
+  opts?: { onProgress?: (done: number, total: number) => void }
+): Promise<{ removed: number; failed: { name: string; error: string }[] }> {
+  const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
+  const failed: { name: string; error: string }[] = []
+  let removed = 0
+  let done = 0
+
+  for (const folder of folders) {
+    try {
+      await deleteFolder(sourceLoc, folder)
+      removed++
+    } catch (err) {
+      failed.push({
+        name: folder,
+        error: err instanceof Error ? err.message : 'Could not remove the folder.',
+      })
+    }
+    opts?.onProgress?.(++done, folders.length)
+  }
+
+  return { removed, failed }
+}
+
+/**
+ * Drops from the set-aside list every picture no longer in the photo folder,
+ * so the count means "pictures in there I've decided about" rather than a
+ * running total since the beginning.
+ *
+ * Losing a decision costs one header read if that content ever comes back.
+ */
+export async function pruneSetAside(
+  metadataLoc: MountpointRef,
+  config: IntakeConfig
+): Promise<{ kept: number; forgotten: number }> {
+  const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
+  const [source, examined] = await Promise.all([
+    walkTree(sourceLoc, config.source.path),
+    loadExamined(metadataLoc),
+  ])
+
+  const present = new Set(source.files.map((f) => f.md5))
+  const kept = new Set([...examined].filter((md5) => present.has(md5)))
+  await saveExamined(metadataLoc, kept)
+  return { kept: kept.size, forgotten: examined.size - kept.size }
 }
 
 /**

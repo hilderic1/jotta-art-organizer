@@ -13,6 +13,7 @@ import {
   removeStrays,
   appendIntakeLog,
   summariseRun,
+  runLabel,
   runNeeds,
   type IntakeConfig,
   type IntakeMatch,
@@ -329,9 +330,7 @@ export function IntakeBanner({
             is otherwise unanswerable from the screen — and the answer is yes. */}
         {run.kind === 'look'
           ? `Looked through ${sourceName} and everything below it`
-          : run.kind === 'file'
-            ? 'Last filing'
-            : 'Last tidy'}{' '}
+          : runLabel(run.kind)}{' '}
         — {summariseRun(run)}.{' '}
         <span className="text-zinc-400">
           {new Date(run.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

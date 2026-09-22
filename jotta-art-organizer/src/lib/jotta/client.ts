@@ -278,6 +278,29 @@ export async function deleteFile(
   }
 }
 
+// Directories have their own delete verb in JFS. `dl=true` is documented for
+// files, `dlDir=true` for folders, and which one a given deployment accepts
+// has been inconsistent enough that a rejected first attempt is retried the
+// other way rather than reported as a failure. Both are soft deletes: the
+// folder goes to Jottacloud's trash, same as a file.
+export async function deleteFolder(
+  accessToken: string,
+  username: string,
+  device: string,
+  mountpoint: string,
+  path: string[]
+): Promise<void> {
+  const base = jfsUrl(username, device, mountpoint, path)
+  const first = await jfsFetch(`${base}?dlDir=true`, accessToken, { method: 'POST' })
+  if (first.ok) return
+  const firstText = await first.text().catch(() => '')
+  const second = await jfsFetch(`${base}?dl=true`, accessToken, { method: 'POST' })
+  if (second.ok) return
+  throw new Error(
+    `Failed to delete Jottacloud folder "${path.join('/')}" (${first.status}): ${firstText.slice(0, 300)}`
+  )
+}
+
 // Server-side copy — Jottacloud duplicates the file directly on their end,
 // no bytes pass through us. `destPath` is sent as a raw (not pre-encoded)
 // query parameter value; URLSearchParams handles the single necessary
