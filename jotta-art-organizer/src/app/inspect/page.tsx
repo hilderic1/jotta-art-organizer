@@ -295,7 +295,13 @@ export default function InspectPage() {
 
       {/* Directly above the grid, which shows one folder's worth: the totals
           for everything below are the other half of the same question. */}
-      {location && <FolderTotals loc={location} path={location.path ?? ''} />}
+      {location && (
+        <FolderTotals
+          loc={location}
+          path={location.path ?? ''}
+          metadataLoc={session.authenticated ? session.metadataLocation : null}
+        />
+      )}
 
       {files?.length === 0 && <p className="text-sm text-zinc-500">No pictures directly in this folder.</p>}
 

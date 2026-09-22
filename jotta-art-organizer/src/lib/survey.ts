@@ -132,6 +132,11 @@ export async function surveyFolder(
   opts?: {
     nameContains?: string
     detectArtwork?: boolean
+    /** The tools whose output counts as artwork. Left out, the default list
+     *  is used — but a caller that can read the setting should pass it, so
+     *  this count and what filing would actually offer are the same
+     *  question asked twice rather than two different questions. */
+    artTools?: string[]
     onProgress?: (
       folders: number,
       files: number,
@@ -218,7 +223,7 @@ export async function surveyFolder(
         const path = pictures[pIdx++]
         if (path === undefined) return
         try {
-          if (artworkReason(await readArtworkMetadata(loc, path))) artwork++
+          if (artworkReason(await readArtworkMetadata(loc, path), opts?.artTools)) artwork++
           read++
         } catch {
           // An unreadable header says nothing either way, so it counts as

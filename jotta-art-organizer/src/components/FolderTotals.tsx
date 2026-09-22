@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import type { MountpointRef } from '@/lib/api'
 import { surveyFolder, type FolderSurvey } from '@/lib/survey'
+import { loadIntakeConfig, artTools, DEFAULT_ART_TOOLS } from '@/lib/photoIntake'
 
 /**
  * Totals for a folder and everything below it.
@@ -12,12 +13,25 @@ import { surveyFolder, type FolderSurvey } from '@/lib/survey'
  * looks like a fault rather than the ordinary shape of a Google Photos
  * export. This counts the whole tree instead.
  */
-export function FolderTotals({ loc, path }: { loc: MountpointRef; path: string }) {
+export function FolderTotals({
+  loc,
+  path,
+  metadataLoc,
+}: {
+  loc: MountpointRef
+  path: string
+  /** Where the settings live, so counting artwork asks the same question
+   *  filing asks — with her tools, not a default list. */
+  metadataLoc?: MountpointRef | null
+}) {
   const [result, setResult] = useState<FolderSurvey | null>(null)
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<{ folders: number; files: number; stage: string } | null>(null)
   const [withArtwork, setWithArtwork] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Named in the answer, because "2,314 are artwork" means nothing without
+  // knowing what was being looked for.
+  const [usedTools, setUsedTools] = useState<string[]>(DEFAULT_ART_TOOLS)
   const stopper = useRef<AbortController | null>(null)
 
   const label = path ? `${loc.mountpoint}/${path}` : loc.mountpoint
@@ -29,9 +43,18 @@ export function FolderTotals({ loc, path }: { loc: MountpointRef; path: string }
     setError(null)
     setResult(null)
     try {
+      // Read at the moment of counting rather than held: the setting can
+      // have been changed on the Setup page since this one was opened.
+      let tools: string[] | undefined
+      if (withArtwork && metadataLoc) {
+        const config = await loadIntakeConfig(metadataLoc).catch(() => null)
+        tools = config ? artTools(config) : undefined
+      }
+      setUsedTools(tools ?? DEFAULT_ART_TOOLS)
       setResult(
         await surveyFolder(loc, path, {
           detectArtwork: withArtwork,
+          artTools: tools,
           signal: controller.signal,
           onProgress: (folders, files, stage) => setProgress({ folders, files, stage }),
         })
@@ -74,6 +97,11 @@ export function FolderTotals({ loc, path }: { loc: MountpointRef; path: string }
           />
           also read each picture to count artwork (slow)
         </label>
+        {withArtwork && !metadataLoc && (
+          <span className="text-amber-700 dark:text-amber-500">
+            Settings unavailable here, so this counts {DEFAULT_ART_TOOLS.join(' or ')} only.
+          </span>
+        )}
       </div>
 
       {progress && (
@@ -97,8 +125,8 @@ export function FolderTotals({ loc, path }: { loc: MountpointRef; path: string }
             {result.artwork != null && (
               <>
                 {' '}
-                <strong>{result.artwork.toLocaleString()}</strong> of them say they were made by PicsArt or
-                an AI tool
+                <strong>{result.artwork.toLocaleString()}</strong> of them say they were made in{' '}
+                {usedTools.join(' or ')}
                 {result.artworkRead != null && result.artworkRead < result.pictures
                   ? ` — out of ${result.artworkRead.toLocaleString()} read before this stopped`
                   : ''}
