@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { getSessionStatus, type MountpointRef, type SessionStatus } from '@/lib/api'
 import { LocationPicker } from '@/components/LocationPicker'
+import { ReuniteSidecars } from '@/components/ReuniteSidecars'
 import { checkTakeout, type TakeoutCheckResult, type TakeoutStage } from '@/lib/takeoutCheck'
 import { GooglePhotosHandoff } from '@/components/GooglePhotosHandoff'
 
@@ -84,6 +85,17 @@ export default function TakeoutCheckPage() {
           <p className="text-sm text-zinc-500">Choose the folder holding your Takeout export.</p>
           <LocationPicker onSelect={run} />
         </>
+      )}
+
+      {/* Same folder, a different question about it: the check asks what the
+          export still has, this asks what it is still holding on behalf of
+          pictures that have left. */}
+      {folder && !running && session.authenticated && session.metadataLocation && (
+        <ReuniteSidecars
+          metadataLoc={session.metadataLocation}
+          exportLoc={{ device: folder.device, mountpoint: folder.mountpoint }}
+          exportPath={folder.path ?? ''}
+        />
       )}
 
       {running && (
