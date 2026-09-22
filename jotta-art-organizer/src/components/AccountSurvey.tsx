@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { surveyAccount, type MountpointSurvey } from '@/lib/survey'
+import { surveyAccount, type MountpointSurvey, type SurveyProgress } from '@/lib/survey'
 
 /**
  * Counts what every device and mountpoint holds, so "where are my pictures?"
@@ -15,7 +15,7 @@ import { surveyAccount, type MountpointSurvey } from '@/lib/survey'
 export function AccountSurvey() {
   const [results, setResults] = useState<MountpointSurvey[] | null>(null)
   const [running, setRunning] = useState(false)
-  const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null)
+  const [progress, setProgress] = useState<SurveyProgress | null>(null)
   const [name, setName] = useState('')
   const [searched, setSearched] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -32,7 +32,7 @@ export function AccountSurvey() {
       const out = await surveyAccount({
         nameContains: name.trim() || undefined,
         signal: controller.signal,
-        onProgress: (done, total, current) => setProgress({ done, total, current }),
+        onProgress: setProgress,
       })
       setResults(out)
     } catch (err) {
@@ -86,7 +86,15 @@ export function AccountSurvey() {
 
       {progress && (
         <p className="mt-2 text-xs text-zinc-400">
-          {progress.current || 'Finishing'} — mountpoint {progress.done + 1} of {progress.total}
+          Mountpoint {progress.index} of {progress.total} — {progress.folders.toLocaleString()} folder
+          {progress.folders === 1 ? '' : 's'}, {progress.files.toLocaleString()} file
+          {progress.files === 1 ? '' : 's'} so far
+          {/* The folder in full, on its own line: it's long, it changes
+              constantly, and it's the only thing that shows the walk is
+              getting somewhere rather than stuck. */}
+          <span className="block truncate font-mono text-[11px]" title={progress.path}>
+            {progress.path}
+          </span>
         </p>
       )}
       {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}

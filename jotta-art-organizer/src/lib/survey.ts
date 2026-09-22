@@ -63,10 +63,23 @@ const FILE_CONCURRENCY = 6
  * This is a lot of requests — one per folder in the account — so it is a
  * button rather than something that runs on its own, and it can be called off.
  */
+export type SurveyProgress = {
+  /** Which mountpoint, counting from one, and how many there are. */
+  index: number
+  total: number
+  mountpoint: string
+  /** The folder being read at this moment, named in full. A walk of a big
+   *  archive is minutes of silence otherwise, and silence is
+   *  indistinguishable from being stuck. */
+  path: string
+  folders: number
+  files: number
+}
+
 export async function surveyAccount(opts?: {
   /** Case-insensitive fragment of a filename to locate while walking. */
   nameContains?: string
-  onProgress?: (done: number, total: number, current: string) => void
+  onProgress?: (progress: SurveyProgress) => void
   signal?: AbortSignal
 }): Promise<MountpointSurvey[]> {
   const mountpoints = await listMountpoints()
@@ -75,15 +88,34 @@ export async function surveyAccount(opts?: {
 
   for (const [index, mp] of mountpoints.entries()) {
     if (opts?.signal?.aborted) break
-    opts?.onProgress?.(index, mountpoints.length, `${mp.device}/${mp.mountpoint}`)
+    const where = `${mp.device}/${mp.mountpoint}`
+    opts?.onProgress?.({
+      index: index + 1,
+      total: mountpoints.length,
+      mountpoint: where,
+      path: where,
+      folders: 0,
+      files: 0,
+    })
     results.push({
-      ...(await surveyFolder(mp, '', { nameContains: wanted, signal: opts?.signal })),
+      ...(await surveyFolder(mp, '', {
+        nameContains: wanted,
+        signal: opts?.signal,
+        onProgress: (folders, files, _stage, path) =>
+          opts?.onProgress?.({
+            index: index + 1,
+            total: mountpoints.length,
+            mountpoint: where,
+            path: path ? `${where}/${path}` : where,
+            folders,
+            files,
+          }),
+      })),
       device: mp.device,
       mountpoint: mp.mountpoint,
     })
   }
 
-  opts?.onProgress?.(mountpoints.length, mountpoints.length, '')
   return results
 }
 
@@ -100,7 +132,13 @@ export async function surveyFolder(
   opts?: {
     nameContains?: string
     detectArtwork?: boolean
-    onProgress?: (folders: number, files: number, stage: 'listing' | 'reading') => void
+    onProgress?: (
+      folders: number,
+      files: number,
+      stage: 'listing' | 'reading',
+      /** The folder just read, relative to where the walk started. */
+      path?: string
+    ) => void
     signal?: AbortSignal
   }
 ): Promise<FolderSurvey> {
@@ -155,7 +193,10 @@ export async function surveyFolder(
         }
       }
       for (const sub of listing.folders) queue.push({ path: sub.path, depth: next.depth + 1 })
-      opts?.onProgress?.(out.folders, out.files, 'listing')
+      // Relative to where this walk began, so a caller that started deeper
+      // than the mountpoint root can name it however it likes.
+      const rel = rootPath && next.path.startsWith(rootPath) ? next.path.slice(rootPath.length + 1) : next.path
+      opts?.onProgress?.(out.folders, out.files, 'listing', rel)
     }
   }
 
