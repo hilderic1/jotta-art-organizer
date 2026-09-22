@@ -16,6 +16,8 @@ import {
   findLeftovers,
   removeEmptyFolders,
   pruneSetAside,
+  intakeSources,
+  folderLabel,
   type Leftovers,
   type FolderRef,
   type IntakeConfig,
@@ -23,8 +25,11 @@ import {
 } from '@/lib/photoIntake'
 
 function label(folder: FolderRef | null): string {
-  if (!folder) return 'not set'
-  return folder.path ? `${folder.mountpoint}/${folder.path}` : folder.mountpoint
+  return folder ? folderLabel(folder) : 'not set'
+}
+
+function sameFolder(a: FolderRef, b: FolderRef): boolean {
+  return a.device === b.device && a.mountpoint === b.mountpoint && a.path === b.path
 }
 
 /**
@@ -36,7 +41,7 @@ function label(folder: FolderRef | null): string {
 export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) {
   const [config, setConfig] = useState<IntakeConfig | null>(null)
   const [loaded, setLoaded] = useState(false)
-  const [picking, setPicking] = useState<'source' | 'dest' | null>(null)
+  const [picking, setPicking] = useState<'source' | 'dest' | 'add' | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [setAside, setSetAside] = useState(0)
@@ -153,21 +158,42 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
     }
   }
 
-  function pick(which: 'source' | 'dest', loc: MountpointRef & { path?: string }) {
-    const folder: FolderRef = { device: loc.device, mountpoint: loc.mountpoint, path: loc.path ?? '' }
-    // Both are needed before it can run, so an incomplete pair is stored with
-    // the switch off rather than refused.
-    const next: IntakeConfig = {
-      source: which === 'source' ? folder : config?.source ?? folder,
-      dest: which === 'dest' ? folder : config?.dest ?? folder,
-      enabled: config?.enabled ?? false,
-      mode: config?.mode ?? 'copy',
+  // `source` stays in step with the first of `sources`: configurations saved
+  // before there could be several still read that field, and a copy of this
+  // app on another device may be an older one.
+  function withSources(base: IntakeConfig | null, sources: FolderRef[], dest: FolderRef): IntakeConfig {
+    return {
+      source: sources[0] ?? base?.source ?? dest,
+      sources,
+      dest,
+      enabled: base?.enabled ?? false,
+      mode: base?.mode ?? 'copy',
+      lookUntilDone: base?.lookUntilDone,
     }
+  }
+
+  function pick(which: 'source' | 'dest' | 'add', loc: MountpointRef & { path?: string }) {
+    const folder: FolderRef = { device: loc.device, mountpoint: loc.mountpoint, path: loc.path ?? '' }
+    const current = config ? intakeSources(config) : []
+    const dest = which === 'dest' ? folder : config?.dest ?? folder
+    let sources = current
+    if (which === 'source') sources = current.length > 0 ? [folder, ...current.slice(1)] : [folder]
+    // Same folder twice would read every picture in it twice and offer each
+    // one twice over.
+    if (which === 'add' && !current.some((f) => sameFolder(f, folder))) sources = [...current, folder]
     setPicking(null)
-    void persist(next)
+    void persist(withSources(config, sources, dest))
+  }
+
+  function removeSource(folder: FolderRef) {
+    if (!config) return
+    const rest = intakeSources(config).filter((f) => !sameFolder(f, folder))
+    void persist(withSources(config, rest, config.dest))
   }
 
   if (!loaded) return null
+
+  const sources = config ? intakeSources(config) : []
 
   return (
     <section className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
@@ -180,19 +206,47 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
       </p>
 
       <dl className="mt-3 flex flex-col gap-2 text-xs">
-        <div className="flex items-center justify-between gap-2">
-          <span>
-            <dt className="inline text-zinc-500">New artwork and photos arrive in </dt>
-            <dd className="inline font-medium">{label(config?.source ?? null)}</dd>
-          </span>
-          <button
-            onClick={() => setPicking(picking === 'source' ? null : 'source')}
-            className="shrink-0 text-indigo-600 hover:underline dark:text-indigo-400"
-          >
-            {picking === 'source' ? 'Cancel' : 'Change'}
-          </button>
+        {/* More than one, because artwork arrives in more than one way: the
+            phone's backup as it's made, and an old export full of pieces
+            that were never sorted out of the photographs. */}
+        <div>
+          <dt className="text-zinc-500">New artwork and photos arrive in</dt>
+          {sources.length === 0 ? (
+            <dd className="font-medium">not set</dd>
+          ) : (
+            sources.map((folder) => (
+              <dd key={`${folder.device}/${folder.mountpoint}/${folder.path}`} className="flex items-center justify-between gap-2">
+                <span className="font-medium">{label(folder)}</span>
+                {sources.length > 1 && (
+                  <button
+                    onClick={() => removeSource(folder)}
+                    className="shrink-0 text-zinc-500 hover:text-red-600 hover:underline dark:hover:text-red-400"
+                  >
+                    Stop looking here
+                  </button>
+                )}
+              </dd>
+            ))
+          )}
+          <div className="mt-1 flex gap-3">
+            <button
+              onClick={() => setPicking(picking === 'source' ? null : 'source')}
+              className="text-indigo-600 hover:underline dark:text-indigo-400"
+            >
+              {picking === 'source' ? 'Cancel' : sources.length > 0 ? 'Change the first' : 'Choose a folder'}
+            </button>
+            {sources.length > 0 && (
+              <button
+                onClick={() => setPicking(picking === 'add' ? null : 'add')}
+                className="text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                {picking === 'add' ? 'Cancel' : 'Look somewhere else as well'}
+              </button>
+            )}
+          </div>
         </div>
         {picking === 'source' && <LocationPicker onSelect={(loc) => pick('source', loc)} />}
+        {picking === 'add' && <LocationPicker onSelect={(loc) => pick('add', loc)} />}
 
         <div className="flex items-center justify-between gap-2">
           <span>
@@ -259,6 +313,27 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
         <span className={!config?.source || !config?.dest ? 'text-zinc-400' : undefined}>
           Look for new artwork when the app opens
           {(!config?.source || !config?.dest) && <span className="block">Set both folders first.</span>}
+        </span>
+      </label>
+
+      {/* A look reads a bounded number of pictures so opening the app is never
+          a long wait. Sweeping an archive once is the opposite case — there,
+          stopping at 300 means pressing the button a hundred times. */}
+      <label className="mt-2 flex w-fit items-start gap-2 text-xs">
+        <input
+          type="checkbox"
+          checked={config?.lookUntilDone === true}
+          disabled={!config}
+          onChange={(e) => config && void persist({ ...config, lookUntilDone: e.target.checked })}
+          className="mt-0.5 shrink-0"
+        />
+        <span>
+          Keep looking until it has read everything
+          <span className="block text-zinc-500">
+            Off, a look reads up to 300 pictures and leaves the rest for next time. On, it goes until it
+            is finished — which on a large folder is a long run, though Skip stops it at any point and
+            every picture already read stays read.
+          </span>
         </span>
       </label>
 

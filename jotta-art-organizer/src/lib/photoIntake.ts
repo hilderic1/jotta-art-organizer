@@ -31,8 +31,13 @@ const LOG_FILENAME = 'intake-log.json'
 export type FolderRef = MountpointRef & { path: string }
 
 export type IntakeConfig = {
-  /** Where the iPad's pictures land — Jottacloud's own photo backup. */
+  /** The first place to look — where the iPad's pictures land. Kept as its
+   *  own field because every configuration saved before there could be more
+   *  than one has it, and those must keep working untouched. */
   source: FolderRef
+  /** Every place to look, this one included. Absent in older configurations,
+   *  which is what `intakeSources` is for. */
+  sources?: FolderRef[]
   /** Where her artwork is kept. */
   dest: FolderRef
   enabled: boolean
@@ -40,12 +45,48 @@ export type IntakeConfig = {
    *  putting it in the destination. Absent means copy, which is what every
    *  setup saved before moving existed. */
   mode?: 'copy' | 'move'
+  /** Read every picture that hasn't been read yet, rather than stopping at
+   *  the usual budget. For sweeping a whole archive once, where stopping
+   *  after 300 means pressing the button a hundred times. */
+  lookUntilDone?: boolean
+}
+
+/** Everywhere to look, old configurations included. */
+export function intakeSources(config: IntakeConfig): FolderRef[] {
+  const listed = config.sources?.filter(Boolean) ?? []
+  return listed.length > 0 ? listed : config.source ? [config.source] : []
+}
+
+/** How a folder is named on screen. One function, because naming it by its
+ *  path alone turned "Archive/Google Photos" into "Google Photos" in one
+ *  place and not the other. */
+export function folderLabel(folder: FolderRef): string {
+  return folder.path ? `${folder.mountpoint}/${folder.path}` : folder.mountpoint
+}
+
+export function sourcesLabel(config: IntakeConfig): string {
+  const sources = intakeSources(config)
+  if (sources.length === 0) return 'nowhere yet'
+  if (sources.length === 1) return folderLabel(sources[0])
+  return `${folderLabel(sources[0])} and ${sources.length - 1} other${sources.length === 2 ? '' : 's'}`
+}
+
+/** Works for a configured folder and for a match alike: both say which
+ *  device and mountpoint they belong to, which with several sources is no
+ *  longer something a caller can assume. */
+function locOf(where: { device: string; mountpoint: string }): MountpointRef {
+  return { device: where.device, mountpoint: where.mountpoint }
 }
 
 export type IntakeMatch = {
   md5: string
   path: string
   name: string
+  /** Which of the source folders it came out of. Carried per match rather
+   *  than assumed, since there can be several and they can be on different
+   *  devices. */
+  device: string
+  mountpoint: string
   /** Why this was taken for her work, shown so a wrong guess is visible
    *  rather than mysterious. */
   reason: string
@@ -326,11 +367,16 @@ export async function scanIntake(
   config: IntakeConfig,
   opts?: { onProgress?: (examined: number, total: number) => void; signal?: AbortSignal }
 ): Promise<IntakeScan> {
-  const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
   const destLoc = { device: config.dest.device, mountpoint: config.dest.mountpoint }
+  const sources = intakeSources(config)
 
-  const [source, dest, examined] = await Promise.all([
-    walkTree(sourceLoc, config.source.path, { signal: opts?.signal }),
+  const [walks, dest, examined] = await Promise.all([
+    Promise.all(
+      sources.map(async (folder) => ({
+        folder,
+        walk: await walkTree(locOf(folder), folder.path, { signal: opts?.signal }),
+      }))
+    ),
     walkTree(destLoc, config.dest.path, { signal: opts?.signal }),
     loadExamined(metadataLoc),
   ])
@@ -341,6 +387,12 @@ export async function scanIntake(
     return { matches: [], strays: [], remaining: 0, examined: 0, stopped: true, logged: null }
   }
 
+  // Which folder each picture came out of travels with it: the sources can be
+  // on different devices, and a copy taken from the wrong one is a copy of
+  // whatever happens to share that path there.
+  const found = walks.flatMap(({ folder, walk }) => walk.files.map((file) => ({ folder, file })))
+  const sourceFolderCount = walks.reduce((n, { walk }) => n + walk.folderRelPaths.length + 1, 0)
+
   // Already filed, or already judged not to be hers. Content hashes, so a
   // renamed copy is still recognised as the same picture.
   const alreadyThere = new Set(dest.files.map((f) => f.md5))
@@ -348,7 +400,9 @@ export async function scanIntake(
   // for the log is taken before that starts — otherwise this run's work would
   // be reported as something earlier runs had already decided.
   const examinedBefore = new Set(examined)
-  const candidates = source.files.filter((f) => !alreadyThere.has(f.md5) && !examined.has(f.md5))
+  const candidates = found.filter(
+    ({ file }) => !alreadyThere.has(file.md5) && !examined.has(file.md5)
+  )
 
   // No header read needed to know these are hers: the same content is in the
   // artwork folder, which is how it got there. Every earlier run that copied
@@ -356,17 +410,22 @@ export async function scanIntake(
   // stands between "filed" and "separated".
   const strays =
     config.mode === 'move'
-      ? source.files
-          .filter((f) => alreadyThere.has(f.md5))
-          .map((f) => ({
-            md5: f.md5,
-            path: f.absPath,
-            name: f.absPath.split('/').pop() ?? f.md5,
-            reason: `Already in ${config.dest.path || config.dest.mountpoint}`,
+      ? found
+          .filter(({ file }) => alreadyThere.has(file.md5))
+          .map(({ folder, file }) => ({
+            md5: file.md5,
+            path: file.absPath,
+            name: file.absPath.split('/').pop() ?? file.md5,
+            device: folder.device,
+            mountpoint: folder.mountpoint,
+            reason: `Already in ${folderLabel(config.dest)}`,
           }))
       : []
 
-  const batch = candidates.slice(0, EXAMINE_BUDGET)
+  // A sweep of a whole archive against a budget means pressing the button a
+  // hundred times, so the budget can be lifted. It's still interruptible —
+  // Skip stops it between files and keeps every header already read.
+  const batch = config.lookUntilDone ? candidates : candidates.slice(0, EXAMINE_BUDGET)
   const matches: IntakeMatch[] = []
   let done = 0
 
@@ -374,11 +433,12 @@ export async function scanIntake(
   async function worker() {
     for (;;) {
       if (opts?.signal?.aborted) return
-      const file: WalkEntry | undefined = batch[cursor++]
-      if (!file) return
+      const next: { folder: FolderRef; file: WalkEntry } | undefined = batch[cursor++]
+      if (!next) return
+      const { folder, file } = next
       let reason: string | null = null
       try {
-        reason = artworkReason(await readArtworkMetadata(sourceLoc, file.absPath))
+        reason = artworkReason(await readArtworkMetadata(locOf(folder), file.absPath))
       } catch {
         // An unreadable file is left for next time rather than written off:
         // a dropped request says nothing about what the picture is.
@@ -391,6 +451,8 @@ export async function scanIntake(
           md5: file.md5,
           path: file.absPath,
           name: file.absPath.split('/').pop() ?? file.md5,
+          device: folder.device,
+          mountpoint: folder.mountpoint,
           reason,
         })
       } else {
@@ -414,12 +476,12 @@ export async function scanIntake(
   const entry: IntakeLogEntry = {
     at: new Date().toISOString(),
     kind: 'look',
-    // The root folder as well as everything under it: walkTree queues each
-    // subfolder it meets, so this is the whole tree, however deep.
-    folders: source.folderRelPaths.length + 1,
-    pictures: source.files.length,
-    alreadyFiled: source.files.filter((f) => alreadyThere.has(f.md5)).length,
-    setAside: source.files.filter((f) => examinedBefore.has(f.md5)).length,
+    // Every source's whole tree, however deep: walkTree queues each subfolder
+    // it meets, and each source is walked the same way.
+    folders: sourceFolderCount,
+    pictures: found.length,
+    alreadyFiled: found.filter(({ file }) => alreadyThere.has(file.md5)).length,
+    setAside: found.filter(({ file }) => examinedBefore.has(file.md5)).length,
     read: done,
     found: matches.length,
     remaining: candidates.length - batch.length,
@@ -459,7 +521,6 @@ export type IntakeResult = {
 // a burst of them against a folder being written to is how the earlier copy
 // work produced half-written trees.
 export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): Promise<IntakeResult> {
-  const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
   const destLoc = { device: config.dest.device, mountpoint: config.dest.mountpoint }
   const failed: IntakeResult['failed'] = []
   let copied = 0
@@ -490,7 +551,7 @@ export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): 
       // however many copies of it the photo folder happened to hold.
       if (config.mode === 'move') {
         try {
-          await deleteFile(sourceLoc, match.path)
+          await deleteFile(locOf(match), match.path)
           removed++
         } catch (err) {
           removeFailed.push({
@@ -510,7 +571,7 @@ export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): 
       // rather than interpolated because a destination at the root of a
       // mountpoint has an empty path, which would otherwise give "/name".
       const destPath = [config.dest.path, name].filter(Boolean).join('/')
-      await copyFile(sourceLoc, match.path, destLoc, destPath)
+      await copyFile(locOf(match), match.path, destLoc, destPath)
       existing.add(name)
       landedByMd5.set(match.md5, destPath)
       copiedPaths.push(destPath)
@@ -524,7 +585,7 @@ export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): 
     // can lose the picture.
     if (config.mode === 'move') {
       try {
-        await deleteFile(sourceLoc, match.path)
+        await deleteFile(locOf(match), match.path)
         removed++
       } catch (err) {
         removeFailed.push({
@@ -538,10 +599,14 @@ export async function fileIntake(config: IntakeConfig, matches: IntakeMatch[]): 
   return { copied, failed, copiedPaths, removed, removeFailed }
 }
 
+/** A folder named well enough to delete: which mountpoint, and where in it.
+ *  With several sources a bare path no longer says where a folder is. */
+export type SourceFolder = { device: string; mountpoint: string; path: string }
+
 export type Leftovers = {
   /** Folders with no picture anywhere beneath them, each one the top of an
    *  empty stretch — deleting it takes the empty folders under it too. */
-  emptyFolders: string[]
+  emptyFolders: SourceFolder[]
   /** Everything empty, including the ones covered by a parent above. Counted
    *  because "9 folders" would badly understate 451 of them going. */
   emptyFoldersTotal: number
@@ -596,49 +661,67 @@ export async function findLeftovers(
   config: IntakeConfig,
   opts?: { signal?: AbortSignal }
 ): Promise<Leftovers> {
-  const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
-  const [source, examined] = await Promise.all([
-    walkTree(sourceLoc, config.source.path, { signal: opts?.signal }),
+  const sources = intakeSources(config)
+  const [walks, examined] = await Promise.all([
+    Promise.all(
+      sources.map(async (folder) => ({
+        folder,
+        walk: await walkTree(locOf(folder), folder.path, { signal: opts?.signal }),
+      }))
+    ),
     loadExamined(metadataLoc),
   ])
 
-  // Every folder on the way up from a picture holds a picture, so far as
-  // emptying goes: a folder is only empty when nothing beneath it is a file.
-  const holdsPictures = new Set<string>([''])
-  for (const file of source.files) {
-    let folder = parentOf(file.relPath)
-    for (;;) {
-      if (holdsPictures.has(folder)) break
-      holdsPictures.add(folder)
-      if (folder === '') break
-      folder = parentOf(folder)
+  const empty: SourceFolder[] = []
+  const tops: SourceFolder[] = []
+  const present = new Set<string>()
+  let pictures = 0
+  let folderCount = 0
+
+  for (const { folder, walk } of walks) {
+    // Every folder on the way up from a picture holds a picture, so far as
+    // emptying goes: a folder is only empty when nothing beneath it is a file.
+    const holdsPictures = new Set<string>([''])
+    for (const file of walk.files) {
+      present.add(file.md5)
+      let at = parentOf(file.relPath)
+      for (;;) {
+        if (holdsPictures.has(at)) break
+        holdsPictures.add(at)
+        if (at === '') break
+        at = parentOf(at)
+      }
     }
+
+    const fullPath = (rel: string) => [folder.path, rel].filter(Boolean).join('/')
+    for (const rel of walk.folderRelPaths) {
+      if (holdsPictures.has(rel)) continue
+      const entry = { device: folder.device, mountpoint: folder.mountpoint, path: fullPath(rel) }
+      empty.push(entry)
+      // Only the top of each empty stretch: deleting a folder takes what's
+      // under it, so listing the children as well would be asking for the
+      // same work twice and, worse, after it's already been done.
+      if (holdsPictures.has(parentOf(rel))) tops.push(entry)
+    }
+
+    pictures += walk.files.length
+    folderCount += walk.folderRelPaths.length + 1
   }
 
-  const empty = source.folderRelPaths.filter((rel) => !holdsPictures.has(rel))
-  // Only the top of each empty stretch: deleting a folder takes what's under
-  // it, so listing the children as well would be asking for the same work
-  // twice and, worse, asking for it after it's already been done.
-  const tops = empty.filter((rel) => holdsPictures.has(parentOf(rel)))
-
-  const present = new Set(source.files.map((f) => f.md5))
   let stale = 0
   for (const md5 of examined) if (!present.has(md5)) stale++
-
-  const fullPath = (rel: string) => [config.source.path, rel].filter(Boolean).join('/')
 
   // Asked again, one at a time, and reported exactly as Jottacloud answers.
   // The walk keeps only files it has a checksum for, so a folder full of
   // pictures it can't read a checksum from looks empty to it — the one
   // mistake in here that would cost photographs rather than tidy them.
   const samples: EmptyFolderSample[] = []
-  for (const rel of empty.slice(0, SAMPLE_LIMIT)) {
-    const path = fullPath(rel)
+  for (const folder of empty.slice(0, SAMPLE_LIMIT)) {
     try {
-      const listing = await listFolder(sourceLoc, path, { includeDeleted: true })
+      const listing = await listFolder(locOf(folder), folder.path, { includeDeleted: true })
       const live = listing.files.filter((f) => !f.deleted)
       samples.push({
-        path,
+        path: `${folder.mountpoint}/${folder.path}`,
         entries: live.length,
         withoutHash: live.filter((f) => !f.md5).length,
         deleted: listing.files.length - live.length,
@@ -646,7 +729,7 @@ export async function findLeftovers(
       })
     } catch (err) {
       samples.push({
-        path,
+        path: `${folder.mountpoint}/${folder.path}`,
         entries: 0,
         withoutHash: 0,
         deleted: 0,
@@ -657,10 +740,10 @@ export async function findLeftovers(
   }
 
   return {
-    emptyFolders: tops.map(fullPath),
+    emptyFolders: tops,
     emptyFoldersTotal: empty.length,
-    pictures: source.files.length,
-    folders: source.folderRelPaths.length + 1,
+    pictures,
+    folders: folderCount,
     setAsideTotal: examined.size,
     setAsideStale: stale,
     samples,
@@ -670,21 +753,20 @@ export async function findLeftovers(
 /** Removes the folders `findLeftovers` found empty. They go to the trash. */
 export async function removeEmptyFolders(
   config: IntakeConfig,
-  folders: string[],
+  folders: SourceFolder[],
   opts?: { onProgress?: (done: number, total: number) => void }
 ): Promise<{ removed: number; failed: { name: string; error: string }[] }> {
-  const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
   const failed: { name: string; error: string }[] = []
   let removed = 0
   let done = 0
 
   for (const folder of folders) {
     try {
-      await deleteFolder(sourceLoc, folder)
+      await deleteFolder(locOf(folder), folder.path)
       removed++
     } catch (err) {
       failed.push({
-        name: folder,
+        name: `${folder.mountpoint}/${folder.path}`,
         error: err instanceof Error ? err.message : 'Could not remove the folder.',
       })
     }
@@ -705,13 +787,14 @@ export async function pruneSetAside(
   metadataLoc: MountpointRef,
   config: IntakeConfig
 ): Promise<{ kept: number; forgotten: number }> {
-  const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
-  const [source, examined] = await Promise.all([
-    walkTree(sourceLoc, config.source.path),
+  const [walks, examined] = await Promise.all([
+    Promise.all(intakeSources(config).map((folder) => walkTree(locOf(folder), folder.path))),
     loadExamined(metadataLoc),
   ])
 
-  const present = new Set(source.files.map((f) => f.md5))
+  // Present anywhere it looks, not just in the first place: a decision is
+  // only stale when the picture is in none of them.
+  const present = new Set(walks.flatMap((walk) => walk.files.map((f) => f.md5)))
   const kept = new Set([...examined].filter((md5) => present.has(md5)))
   await saveExamined(metadataLoc, kept)
   return { kept: kept.size, forgotten: examined.size - kept.size }
@@ -730,7 +813,6 @@ export async function removeStrays(
   strays: IntakeMatch[],
   opts?: { onProgress?: (done: number, total: number) => void }
 ): Promise<{ removed: number; failed: { name: string; error: string }[]; unconfirmed: number }> {
-  const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
   const destLoc = { device: config.dest.device, mountpoint: config.dest.mountpoint }
 
   const dest = await walkTree(destLoc, config.dest.path)
@@ -748,7 +830,7 @@ export async function removeStrays(
       continue
     }
     try {
-      await deleteFile(sourceLoc, stray.path)
+      await deleteFile(locOf(stray), stray.path)
       removed++
     } catch (err) {
       failed.push({

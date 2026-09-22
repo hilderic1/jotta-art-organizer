@@ -11,6 +11,7 @@ import {
   fileIntake,
   rememberNotArtwork,
   removeStrays,
+  sourcesLabel,
   appendIntakeLog,
   summariseRun,
   runLabel,
@@ -203,7 +204,7 @@ export function IntakeBanner({
         setError(`${result.failed.length} could not be copied: ${result.failed[0].error}`)
       } else if (result.removeFailed.length > 0) {
         setError(
-          `${result.removeFailed.length} filed, but stayed in ${config.source.path || config.source.mountpoint}: ${result.removeFailed[0].error}`
+          `${result.removeFailed.length} filed, but stayed in ${sourcesLabel(config)}: ${result.removeFailed[0].error}`
         )
       }
       // A picture nobody has read is invisible to the catalogue — not
@@ -304,7 +305,7 @@ export function IntakeBanner({
   function renderBody() {
     if (!config) return null
 
-    const sourceName = config.source.path || config.source.mountpoint
+    const sourceName = sourcesLabel(config)
     const destName = config.dest.path || config.dest.mountpoint
     const moving = config.mode === 'move'
 
@@ -501,7 +502,7 @@ export function IntakeBanner({
       )
     }
 
-    const sourceLoc = { device: config.source.device, mountpoint: config.source.mountpoint }
+    
     const chosenCount = matches.filter((m) => !deselected.has(m.md5)).length
 
     return (
@@ -597,7 +598,7 @@ export function IntakeBanner({
                     so the thumbnail opens it full size with what the file
                     says beside it. */}
                 <button onClick={() => setViewing(m)} className="shrink-0" title={`Open ${m.name}`}>
-                  <Thumbnail loc={sourceLoc} path={m.path} alt={m.name} px={64} className="h-8 w-8 shrink-0 rounded object-cover" />
+                  <Thumbnail loc={{ device: m.device, mountpoint: m.mountpoint }} path={m.path} alt={m.name} px={64} className="h-8 w-8 shrink-0 rounded object-cover" />
                 </button>
                 <button onClick={() => setViewing(m)} className="min-w-0 flex-1 text-left">
                   <span className="block truncate text-xs">{m.name}</span>
@@ -620,7 +621,7 @@ export function IntakeBanner({
 
         {viewing && (
           <ImageViewer
-            loc={sourceLoc}
+            loc={{ device: viewing.device, mountpoint: viewing.mountpoint }}
             path={viewing.path}
             title={viewing.name}
             onClose={() => setViewing(null)}
