@@ -13,6 +13,7 @@ import {
 } from '@/lib/api'
 import { LocationPicker } from '@/components/LocationPicker'
 import { AccountSurvey } from '@/components/AccountSurvey'
+import { FolderTotals } from '@/components/FolderTotals'
 import { Thumbnail } from '@/components/Thumbnail'
 import { FileProperties } from '@/components/FileProperties'
 import { readArtworkMetadata, type ArtworkFileMetadata } from '@/lib/imageMetadata'
@@ -273,6 +274,15 @@ export default function InspectPage() {
           {counts.parsedFiles.toLocaleString()} and {counts.parsedFolders.toLocaleString()}, and is showing{' '}
           {counts.shown.toLocaleString()} picture{counts.shown === 1 ? '' : 's'} — the rest are files it
           doesn&rsquo;t treat as pictures.
+          {/* Said outright because it reads as a total otherwise, and a
+              subfolder holding more than its parent then looks like a fault
+              rather than an ordinary shape for a folder to have. */}
+          {counts.reportedFolders > 0 && (
+            <span className="block">
+              Nothing inside those {counts.reportedFolders.toLocaleString()} folders is counted here — a
+              subfolder can easily hold more than this — count the whole tree below for a total.
+            </span>
+          )}
           {counts.unread > 0 && (
             <span className="mt-1 block rounded border border-red-300 bg-red-50 p-2 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
               {counts.unread.toLocaleString()} entr{counts.unread === 1 ? 'y' : 'ies'} Jottacloud reports here
@@ -282,6 +292,10 @@ export default function InspectPage() {
           )}
         </p>
       )}
+
+      {/* Directly above the grid, which shows one folder's worth: the totals
+          for everything below are the other half of the same question. */}
+      {location && <FolderTotals loc={location} path={location.path ?? ''} />}
 
       {files?.length === 0 && <p className="text-sm text-zinc-500">No pictures directly in this folder.</p>}
 

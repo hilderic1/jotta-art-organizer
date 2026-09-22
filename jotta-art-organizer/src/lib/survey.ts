@@ -12,12 +12,16 @@
 // present in Jottacloud. A folder of them looks empty to everything else in
 // this app and looks full here, which is exactly the difference worth seeing.
 import { listMountpoints, listFolder, unreadEntries, type MountpointRef } from '@/lib/api'
+import { readArtworkMetadata } from '@/lib/imageMetadata'
+import { artworkReason } from '@/lib/photoIntake'
 
 const PICTURE_EXT = /\.(jpe?g|png|gif|webp|heic|heif|avif|tiff?|bmp|dng|cr2|nef|arw|orf|rw2)$/i
 
-export type MountpointSurvey = {
-  device: string
-  mountpoint: string
+export function isPicture(name: string): boolean {
+  return PICTURE_EXT.test(name)
+}
+
+export type FolderSurvey = {
   folders: number
   files: number
   pictures: number
@@ -31,11 +35,26 @@ export type MountpointSurvey = {
   matches: string[]
   /** The deepest folder reached, as a sign of what shape the tree is. */
   deepest: number
+  /** Pictures whose own properties say PicsArt or an AI tool made them.
+   *  Only filled in when asked for: it costs a request per picture, against
+   *  one per folder for everything else here. */
+  artwork?: number
+  /** How many pictures were actually read for that answer, so a stopped or
+   *  partly failed pass doesn't read as "only this many are artwork". */
+  artworkRead?: number
   error?: string
+}
+
+export type MountpointSurvey = FolderSurvey & {
+  device: string
+  mountpoint: string
 }
 
 const FOLDER_CONCURRENCY = 4
 const MATCH_LIMIT = 50
+/** Header reads run wider than folder listings: each one is a small ranged
+ *  fetch, and there can be one per picture. */
+const FILE_CONCURRENCY = 6
 
 /**
  * Counts every file in every mountpoint, optionally noting where a named file
@@ -57,21 +76,37 @@ export async function surveyAccount(opts?: {
   for (const [index, mp] of mountpoints.entries()) {
     if (opts?.signal?.aborted) break
     opts?.onProgress?.(index, mountpoints.length, `${mp.device}/${mp.mountpoint}`)
-    results.push(await surveyOne(mp, wanted, opts?.signal))
+    results.push({
+      ...(await surveyFolder(mp, '', { nameContains: wanted, signal: opts?.signal })),
+      device: mp.device,
+      mountpoint: mp.mountpoint,
+    })
   }
 
   opts?.onProgress?.(mountpoints.length, mountpoints.length, '')
   return results
 }
 
-async function surveyOne(
+/**
+ * Counts a folder and everything below it, however deep.
+ *
+ * One request per folder for the counts. Identifying artwork costs one more
+ * per picture, so it's asked for rather than included — on a folder of
+ * thousands that's the difference between seconds and a long wait.
+ */
+export async function surveyFolder(
   loc: MountpointRef,
-  wanted: string | undefined,
-  signal: AbortSignal | undefined
-): Promise<MountpointSurvey> {
-  const out: MountpointSurvey = {
-    device: loc.device,
-    mountpoint: loc.mountpoint,
+  rootPath: string,
+  opts?: {
+    nameContains?: string
+    detectArtwork?: boolean
+    onProgress?: (folders: number, files: number, stage: 'listing' | 'reading') => void
+    signal?: AbortSignal
+  }
+): Promise<FolderSurvey> {
+  const wanted = opts?.nameContains?.trim().toLowerCase()
+  const signal = opts?.signal
+  const out: FolderSurvey = {
     folders: 0,
     files: 0,
     pictures: 0,
@@ -81,10 +116,14 @@ async function surveyOne(
     deepest: 0,
   }
 
-  // Depth carried with each folder: a mountpoint of month/day folders and one
+  // Kept only when it's going to be used: on a big tree this is the whole
+  // library's worth of paths, and nothing else here needs them.
+  const pictures: string[] = []
+
+  // Depth carried with each folder: a tree of month/day folders and one
   // holding everything flat produce the same counts and want reading
   // differently.
-  const queue: { path: string; depth: number }[] = [{ path: '', depth: 0 }]
+  const queue: { path: string; depth: number }[] = [{ path: rootPath, depth: 0 }]
   let cursor = 0
 
   async function worker() {
@@ -106,13 +145,17 @@ async function surveyOne(
       out.unread += unreadEntries(listing)
       for (const file of listing.files) {
         out.files++
-        if (PICTURE_EXT.test(file.name)) out.pictures++
+        if (isPicture(file.name)) {
+          out.pictures++
+          if (opts?.detectArtwork) pictures.push(file.path)
+        }
         if (!file.md5) out.withoutHash++
         if (wanted && out.matches.length < MATCH_LIMIT && file.name.toLowerCase().includes(wanted)) {
           out.matches.push(file.path)
         }
       }
       for (const sub of listing.folders) queue.push({ path: sub.path, depth: next.depth + 1 })
+      opts?.onProgress?.(out.folders, out.files, 'listing')
     }
   }
 
@@ -120,6 +163,32 @@ async function surveyOne(
   // rounds keep starting until one finds nothing left to visit.
   while (cursor < queue.length && !signal?.aborted) {
     await Promise.all(Array.from({ length: FOLDER_CONCURRENCY }, worker))
+  }
+
+  if (opts?.detectArtwork) {
+    // The same test filing uses: what the file itself records about the tool
+    // that made it, never the picture and never its name.
+    let artwork = 0
+    let read = 0
+    let pIdx = 0
+    async function reader() {
+      for (;;) {
+        if (signal?.aborted) return
+        const path = pictures[pIdx++]
+        if (path === undefined) return
+        try {
+          if (artworkReason(await readArtworkMetadata(loc, path))) artwork++
+          read++
+        } catch {
+          // An unreadable header says nothing either way, so it counts as
+          // neither artwork nor read rather than as "not artwork".
+        }
+        opts?.onProgress?.(out.folders, read, 'reading')
+      }
+    }
+    await Promise.all(Array.from({ length: FILE_CONCURRENCY }, reader))
+    out.artwork = artwork
+    out.artworkRead = read
   }
 
   return out
