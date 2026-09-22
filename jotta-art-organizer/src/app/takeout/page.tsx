@@ -111,8 +111,8 @@ export default function TakeoutCheckPage() {
       {result && (
         <div className="flex flex-col gap-4">
           <p className="text-sm text-zinc-500">
-            Checked {result.photos.toLocaleString()} pictures and {result.records.toLocaleString()} of Google&rsquo;s
-            records across {result.folders.toLocaleString()} folders in {folderLabel}.
+            Checked {result.photos.toLocaleString()} pictures and {result.records.toLocaleString()}{' '}
+            of Google&rsquo;s records across {result.folders.toLocaleString()} folders in {folderLabel}.
           </p>
 
           {/* The cut-off leads: it's the one fact every deletion depends on. */}
@@ -228,7 +228,8 @@ export default function TakeoutCheckPage() {
               <ol className="mt-2 list-decimal pl-5 text-xs text-zinc-600 dark:text-zinc-400">
                 <li className="py-0.5">
                   In Google Photos, search for <strong>Recently added</strong>. Anything added after{' '}
-                  {day(result.latestUpload)} was never exported — it&rsquo;s only in Google.
+                  {day(result.latestUpload)}{' '}
+                  was never exported — it&rsquo;s only in Google.
                 </li>
                 <li className="py-0.5">
                   Note the dates those were <em>taken</em>. The website files them among the old dates, so a

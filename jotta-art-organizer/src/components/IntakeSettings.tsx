@@ -190,8 +190,11 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
           it look again after the detection improves. */}
       {setAside > 0 && (
         <p className="mt-3 text-xs text-zinc-500">
-          {setAside.toLocaleString()} picture{setAside === 1 ? '' : 's'} set aside as not your work — they
-          won&rsquo;t be offered again.{' '}
+          {/* {' '} rather than a plain space: a text chunk that wraps onto the
+              next source line has its leading space trimmed away, which is how
+              this came to read "5,665 picturesset aside". */}
+          {setAside.toLocaleString()} picture{setAside === 1 ? '' : 's'}{' '}
+          set aside as not your work — they won&rsquo;t be offered again.{' '}
           <button
             onClick={async () => {
               setForgetting(true)
