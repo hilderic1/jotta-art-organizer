@@ -622,6 +622,9 @@ export type Leftovers = {
    *  nothing there — and the difference is the difference between tidying up
    *  and throwing away photographs. */
   samples: EmptyFolderSample[]
+  /** Folders that couldn't be listed even after retrying. Every count here
+   *  is short by whatever was in them, so nothing may be removed. */
+  unreadable: number
 }
 
 export type EmptyFolderSample = {
@@ -662,11 +665,18 @@ export async function findLeftovers(
   opts?: { signal?: AbortSignal }
 ): Promise<Leftovers> {
   const sources = intakeSources(config)
+  // A walk of an archive is tens of thousands of listings; one that stays
+  // broken after its retries shouldn't throw away the other thirty thousand.
+  // It is counted instead, and counted failures stop anything being removed.
+  const unreadable: string[] = []
   const [walks, examined] = await Promise.all([
     Promise.all(
       sources.map(async (folder) => ({
         folder,
-        walk: await walkTree(locOf(folder), folder.path, { signal: opts?.signal }),
+        walk: await walkTree(locOf(folder), folder.path, {
+          signal: opts?.signal,
+          onFolderError: (path) => unreadable.push(path),
+        }),
       }))
     ),
     loadExamined(metadataLoc),
@@ -747,6 +757,7 @@ export async function findLeftovers(
     setAsideTotal: examined.size,
     setAsideStale: stale,
     samples,
+    unreadable: unreadable.length,
   }
 }
 

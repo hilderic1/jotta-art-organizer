@@ -232,7 +232,17 @@ export type WalkResult = { files: WalkEntry[]; folderRelPaths: string[] }
 export async function walkTree(
   loc: MountpointRef,
   rootPath: string,
-  opts?: { concurrency?: number; onFolder?: (relPath: string) => void; signal?: AbortSignal }
+  opts?: {
+    concurrency?: number
+    onFolder?: (relPath: string) => void
+    signal?: AbortSignal
+    /** Given, a folder that can't be listed is reported here and the walk
+     *  carries on; without it one failure ends the walk. Carrying on is
+     *  right for a walk of tens of thousands of folders, but only for a
+     *  caller that then treats its own counts as short — which is what the
+     *  reported failures are for. */
+    onFolderError?: (path: string, err: unknown) => void
+  }
 ): Promise<WalkResult> {
   const concurrency = opts?.concurrency ?? 4
   const files: WalkEntry[] = []
@@ -258,7 +268,8 @@ export async function walkTree(
         queue.push(sub.path)
       }
     } catch (err) {
-      error = error ?? err
+      if (opts?.onFolderError) opts.onFolderError(folderPath, err)
+      else error = error ?? err
     } finally {
       inFlight--
     }

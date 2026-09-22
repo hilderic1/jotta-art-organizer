@@ -32,16 +32,47 @@ function jfsUrl(username: string, device: string, mountpoint: string, path: stri
   return `${JFS_BASE}/${encodeSegments([username, device, mountpoint, ...path])}`
 }
 
+// A walk of a big archive is tens of thousands of these, and any one of them
+// can come back as a dropped connection or a "slow down". One of those used
+// to end the whole walk with "fetch failed" after minutes of work — so reads
+// are retried, briefly and with a widening gap.
+//
+// Only reads. A copy or a delete that failed on the wire may well have been
+// carried out anyway, and repeating it is how one picture becomes two.
+const READ_RETRIES = 3
+const RETRY_STATUS = new Set([429, 500, 502, 503, 504])
+
 async function jfsFetch(url: string, accessToken: string, init?: RequestInit) {
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: 'application/xml',
-      ...(init?.headers ?? {}),
-    },
-  })
-  return res
+  const method = init?.method ?? 'GET'
+  const retries = method === 'GET' ? READ_RETRIES : 0
+  let lastError: unknown = null
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, Math.min(400 * 2 ** (attempt - 1), 2000)))
+    }
+    try {
+      const res = await fetch(url, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/xml',
+          ...(init?.headers ?? {}),
+        },
+      })
+      if (attempt < retries && RETRY_STATUS.has(res.status)) continue
+      return res
+    } catch (err) {
+      // Network-level: no response at all. Worth another go, and worth
+      // saying which request it was if it never comes good — "fetch failed"
+      // on its own names nothing.
+      lastError = err
+      if (attempt >= retries) break
+    }
+  }
+
+  const reason = lastError instanceof Error ? lastError.message : 'no response'
+  throw new Error(`Jottacloud did not answer (${reason}): ${method} ${url}`)
 }
 
 export type JottaEntry = {

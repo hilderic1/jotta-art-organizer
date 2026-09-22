@@ -388,7 +388,10 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
           ) : (
             (() => {
             // Folders the closer look found to hold files the walk can't see.
-            const blind = leftovers.samples.filter((s) => s.withoutHash > 0).length
+            // Folders that couldn't be read at all count the same way: both
+            // mean the picture of what's in there is incomplete.
+            const blind =
+              leftovers.samples.filter((s) => s.withoutHash > 0).length + leftovers.unreadable
             return (
             <div className="mt-1 flex flex-col gap-2">
               <p className="text-zinc-500">
@@ -442,10 +445,21 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
                 // wrong — removing hundreds of folders on a wrong reading is
                 // not something a confirmation box makes acceptable.
                 <p className="rounded border border-red-300 bg-red-50 p-2 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-                  {blind} of the {leftovers.samples.length} folders listed above hold files this app
-                  can&rsquo;t see — Jottacloud lists them, but without the checksum it reads. They are not
-                  empty, and nothing here will remove them. This needs fixing first; tell me what those
-                  folders hold.
+                  {leftovers.unreadable > 0 && (
+                    <>
+                      {leftovers.unreadable.toLocaleString()} folder
+                      {leftovers.unreadable === 1 ? '' : 's'} could not be read at all, even after
+                      retrying, so what they hold is unknown.{' '}
+                    </>
+                  )}
+                  {leftovers.samples.some((s) => s.withoutHash > 0) && (
+                    <>
+                      Some of the folders listed above hold files this app can&rsquo;t see — Jottacloud
+                      lists them, but without the checksum it reads.{' '}
+                    </>
+                  )}
+                  These counts are short by whatever is in them, so nothing here will remove anything.
+                  Try again — a listing that failed once often works on a second run.
                 </p>
               ) : (
                 leftovers.emptyFolders.length > 0 && (
