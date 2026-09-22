@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { FolderBrowser } from '@/components/FolderBrowser'
 import { uploadFile, getSessionStatus, type SessionStatus, type MountpointRef } from '@/lib/api'
+import { describeArrivedFiles } from '@/lib/autoDescribe'
 import { hashFileMd5 } from '@/lib/md5'
 
 type QueueItem = {
@@ -24,6 +25,8 @@ export default function ImportPage() {
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [dragOver, setDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [describing, setDescribing] = useState<{ done: number; total: number } | null>(null)
+  const [described, setDescribed] = useState(0)
   const [deduping, setDeduping] = useState(false)
   const [dedupeMessage, setDedupeMessage] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -52,6 +55,7 @@ export default function ImportPage() {
   async function startUpload() {
     if (destination === null) return
     setUploading(true)
+    const arrived: string[] = []
     for (const item of queue) {
       if (item.status !== 'pending' && item.status !== 'error') continue
       try {
@@ -62,10 +66,35 @@ export default function ImportPage() {
           updateItem(item.id, { progress: pct })
         )
         updateItem(item.id, { status: result.deduped ? 'deduped' : 'done', progress: 100 })
+        arrived.push([destination.path, item.file.name].filter(Boolean).join('/'))
       } catch (err) {
         updateItem(item.id, { status: 'error', error: err instanceof Error ? err.message : 'Upload failed.' })
       }
     }
+
+    // As with filing and copying: a picture nobody has read is one the
+    // catalogue cannot find by date, place or camera, and leaving that to a
+    // separate bulk run is how a folder goes missing from Find while sitting
+    // plainly in Jottacloud.
+    if (session?.authenticated && session.metadataLocation && arrived.length > 0) {
+      setDescribing({ done: 0, total: arrived.length })
+      try {
+        const outcome = await describeArrivedFiles(
+          session.metadataLocation,
+          destination.loc,
+          destination.path,
+          arrived,
+          { onProgress: (done, total) => setDescribing({ done, total }) }
+        )
+        setDescribed(outcome.described)
+      } catch {
+        // The files are uploaded; describing them is what the catalogue's
+        // own bulk import does anyway, so this is worth no alarm of its own.
+      } finally {
+        setDescribing(null)
+      }
+    }
+
     setUploading(false)
   }
 
@@ -238,9 +267,21 @@ export default function ImportPage() {
               onClick={startUpload}
               className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
             >
-              {uploading ? 'Uploading…' : 'Upload all'}
+              {describing
+                ? `Reading what they say — ${describing.done} of ${describing.total}`
+                : uploading
+                  ? 'Uploading…'
+                  : 'Upload all'}
             </button>
           </div>
+          {/* Said out loud, because it is the difference between a picture
+              being in Jottacloud and being findable by date or place. */}
+          {!uploading && described > 0 && (
+            <p className="mt-2 text-xs text-zinc-500">
+              {described} described from what the {described === 1 ? 'file says' : 'files say'} about{' '}
+              {described === 1 ? 'itself' : 'themselves'} — ready to find by date, place or camera.
+            </p>
+          )}
         </section>
       )}
     </div>

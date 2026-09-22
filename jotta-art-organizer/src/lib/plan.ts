@@ -70,7 +70,7 @@ export const PLAN: PlanStep[] = [
     id: 'describe',
     title: 'Describe a new batch in bulk',
     trigger: 'bulk-arrival',
-    when: 'For pictures that arrive any way other than the app filing them — a new export, a folder copied in from elsewhere, anything uploaded to Jottacloud directly. Anything the app files is described as it lands, so that needs nothing.',
+    when: 'Only for pictures that arrive without the app seeing them: unzipped into Jottacloud by its own desktop client, uploaded through Jottacloud’s website, or backed up there by your phone. Anything that comes through this app — Import, Copy, or filing — is described as it lands and needs nothing.',
     why: 'Before the pictures are moved. Google keeps a picture’s date and place in a file beside it, and moving separates the two; read now, it is held against the picture’s content for good.',
     href: '/catalogue',
     where: 'Catalogue → Describe in bulk',
