@@ -15,6 +15,7 @@ import { FolderBrowser } from '@/components/FolderBrowser'
 import { IntakeSettings } from '@/components/IntakeSettings'
 import { CatalogueLocation } from '@/components/CatalogueLocation'
 import { RestoreTags } from '@/components/RestoreTags'
+import { BareRecordsReport } from '@/components/BareRecordsReport'
 
 export default function SetupPage() {
   const router = useRouter()
@@ -92,6 +93,10 @@ export default function SetupPage() {
         {/* Directly under the catalogue location, because both are about the
             catalogue itself rather than about filing. */}
         {status.metadataLocation && <RestoreTags metadataLoc={status.metadataLocation} />}
+
+        {/* After recovery rather than before it: the number only means
+            something once every source has been taken from. */}
+        {status.metadataLocation && <BareRecordsReport metadataLoc={status.metadataLocation} />}
 
         {status.metadataLocation && <IntakeSettings metadataLoc={status.metadataLocation} />}
 
