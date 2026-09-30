@@ -55,10 +55,20 @@ export function viewUrl(loc: MountpointRef, path: string): string {
 }
 
 export async function listMountpoints(): Promise<MountpointRef[]> {
+  return (await listAccountDevices()).mountpoints
+}
+
+/** Every mountpoint, plus the devices the account names but whose own listing
+ *  couldn't be read. Those used to be dropped in silence, which made a device
+ *  you have indistinguishable from one you don't. */
+export async function listAccountDevices(): Promise<{
+  mountpoints: MountpointRef[]
+  skipped: { device: string; reason: string }[]
+}> {
   const res = await fetch('/api/mountpoints')
   const data = await res.json()
   if (!res.ok) throw new Error(data.error ?? 'Failed to list Jottacloud devices.')
-  return data.mountpoints
+  return { mountpoints: data.mountpoints ?? [], skipped: data.skipped ?? [] }
 }
 
 export type JottaEntry = {

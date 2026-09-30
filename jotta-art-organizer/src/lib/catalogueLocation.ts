@@ -11,7 +11,14 @@
 // actually in it, and the answer is remembered on the device as well as in
 // the session. A real catalogue and a stray empty one are then telling apart
 // at a glance rather than by guessing at mountpoint names.
-import { listMountpoints, listFolder, jottaTime, type MountpointRef } from '@/lib/api'
+import {
+  listMountpoints,
+  listAccountDevices,
+  listFolder,
+  jottaTime,
+  type MountpointRef,
+} from '@/lib/api'
+import { loadMetadata } from '@/lib/metadata'
 
 const STORE_FOLDER = '.jotta-art-organizer'
 const SHARDS_FOLDER = `${STORE_FOLDER}/artwork-shards`
@@ -36,11 +43,29 @@ export type CatalogueCandidate = {
   error?: string
 }
 
+export type CatalogueSearch = {
+  candidates: CatalogueCandidate[]
+  /** Devices the account names whose listing couldn't be read, so whose
+   *  folders — and any catalogue in them — were never looked at. A missing
+   *  tag that is nowhere to be found is explained by one of these long
+   *  before it is explained by the tag never existing. */
+  skippedDevices: { device: string; reason: string }[]
+}
+
 /** Everything in this account that looks like a catalogue, most substantial
  *  first. One listing per mountpoint plus one for the shards, so it costs a
  *  couple of dozen requests at most. */
+export async function searchForCatalogues(): Promise<CatalogueSearch> {
+  const { mountpoints, skipped } = await listAccountDevices()
+  return { candidates: await weigh(mountpoints), skippedDevices: skipped }
+}
+
+/** The list alone, for callers that only need somewhere to read from. */
 export async function findCatalogues(): Promise<CatalogueCandidate[]> {
-  const mountpoints = await listMountpoints()
+  return weigh(await listMountpoints())
+}
+
+async function weigh(mountpoints: MountpointRef[]): Promise<CatalogueCandidate[]> {
   const found: CatalogueCandidate[] = []
 
   for (const loc of mountpoints) {
@@ -86,6 +111,51 @@ export async function findCatalogues(): Promise<CatalogueCandidate[]> {
   // Most substantial first: shard files, then their size. The one with the
   // tags in it is the one wanted, whatever it is called.
   return found.sort((a, b) => b.shards - a.shards || b.bytes - a.bytes)
+}
+
+export type TagSighting = {
+  loc: MountpointRef
+  md5: string
+  path: string
+  /** What it says about the picture, so a found record can be recognised as
+   *  the right one rather than merely counted. */
+  tags: Record<string, string[]>
+}
+
+/**
+ * Looks for a picture's tags in every catalogue in the account, by filename.
+ *
+ * When a name has gone missing, "the catalogue has 258 files in it" answers
+ * nothing: the question is where that one record is, and whether it exists at
+ * all. Records are keyed by content hash, but they carry the path they were
+ * last seen at, and that is a name a person can search for.
+ */
+export async function findTagsForName(
+  name: string,
+  candidates: CatalogueCandidate[]
+): Promise<TagSighting[]> {
+  const needle = name.trim().toLowerCase()
+  if (!needle) return []
+  const sightings: TagSighting[] = []
+
+  for (const candidate of candidates) {
+    if (!holdsCatalogue(candidate)) continue
+    const store = await loadMetadata(candidate.loc).catch(() => null)
+    if (!store) continue
+    for (const artwork of store.artworks) {
+      const leaf = (artwork.path ?? '').split('/').pop()?.toLowerCase() ?? ''
+      if (leaf === needle || leaf.includes(needle)) {
+        sightings.push({
+          loc: candidate.loc,
+          md5: artwork.md5,
+          path: artwork.path ?? '',
+          tags: artwork.tags,
+        })
+      }
+    }
+  }
+
+  return sightings
 }
 
 /** Whether a candidate holds anything worth keeping. */

@@ -5,8 +5,8 @@ import { listMountpoints } from '@/lib/jotta/client'
 export async function GET() {
   try {
     const { accessToken, username } = await requireAccessToken()
-    const mountpoints = await listMountpoints(accessToken, username)
-    return NextResponse.json({ mountpoints })
+    const { mountpoints, skipped } = await listMountpoints(accessToken, username)
+    return NextResponse.json({ mountpoints, skipped })
   } catch (err) {
     if (err instanceof Error && err.message === 'NOT_AUTHENTICATED') {
       return NextResponse.json({ error: 'Not connected to Jottacloud yet.' }, { status: 401 })

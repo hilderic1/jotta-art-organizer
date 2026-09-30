@@ -210,7 +210,15 @@ export type MountpointRef = {
 // Lists every device/mountpoint pair on the account (e.g. a phone's
 // "Archive", a desktop's "Sync"/"Backup") so the user can pick where to
 // browse/upload, rather than us guessing a single default.
-export async function listMountpoints(accessToken: string, username: string): Promise<MountpointRef[]> {
+export type DeviceListing = {
+  mountpoints: MountpointRef[]
+  /** Devices named by the account but whose own listing could not be read.
+   *  Carried out rather than swallowed: a device missing from the list is
+   *  indistinguishable from a device you do not have. */
+  skipped: { device: string; reason: string }[]
+}
+
+export async function listMountpoints(accessToken: string, username: string): Promise<DeviceListing> {
   const res = await jfsFetch(`${JFS_BASE}/${encodeURIComponent(username)}`, accessToken)
   if (!res.ok) {
     throw new Error(`Failed to list Jottacloud devices (${res.status}).`)
@@ -229,14 +237,27 @@ export async function listMountpoints(accessToken: string, username: string): Pr
   const devices = Array.isArray(rawDevices) ? rawDevices : [rawDevices]
 
   const result: MountpointRef[] = []
+  const skipped: DeviceListing['skipped'] = []
   for (const d of devices) {
     const deviceName = d?.['@_name'] ?? textOf(d?.name)
     if (!deviceName) continue
 
     // The account-root listing only names devices — each device's own
     // mountpoints require a separate request one level down.
-    const devRes = await jfsFetch(`${JFS_BASE}/${encodeSegments([username, deviceName])}`, accessToken)
-    if (!devRes.ok) continue
+    let devRes: Response
+    try {
+      devRes = await jfsFetch(`${JFS_BASE}/${encodeSegments([username, deviceName])}`, accessToken)
+    } catch (err) {
+      // Reported, not skipped in silence. A device dropped without a word is
+      // a device whose folders — and whose catalogue — cannot be found, and
+      // no amount of searching the others will say why.
+      skipped.push({ device: deviceName, reason: err instanceof Error ? err.message : 'no response' })
+      continue
+    }
+    if (!devRes.ok) {
+      skipped.push({ device: deviceName, reason: `Jottacloud answered ${devRes.status}` })
+      continue
+    }
     const devXml = await devRes.text()
     const devDoc = xmlParser.parse(devXml)
     // `isArray` matches "device" wherever it appears (needed for the
@@ -246,6 +267,7 @@ export async function listMountpoints(accessToken: string, username: string): Pr
     const device = Array.isArray(rawDevice) ? rawDevice[0] : rawDevice
     if (!device) {
       console.error(`[jotta] Unrecognized device XML for "${deviceName}", raw response follows:\n`, devXml)
+      skipped.push({ device: deviceName, reason: 'its listing was not in a shape this app recognises' })
       continue
     }
 
@@ -261,7 +283,7 @@ export async function listMountpoints(accessToken: string, username: string): Pr
     console.error('[jotta] No mountpoints parsed for any device, raw account XML follows:\n', xml)
   }
 
-  return result
+  return { mountpoints: result, skipped }
 }
 
 export async function listFolder(

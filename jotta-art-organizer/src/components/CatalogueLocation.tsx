@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { setMetadataLocation, type MountpointRef } from '@/lib/api'
 import {
-  findCatalogues,
+  searchForCatalogues,
+  findTagsForName,
   holdsCatalogue,
+  type TagSighting,
   rememberLocation,
   type CatalogueCandidate,
 } from '@/lib/catalogueLocation'
@@ -41,18 +43,40 @@ export function CatalogueLocation({
   const [plan, setPlan] = useState<(MergePlan & { from: MountpointRef }) | null>(null)
   const [merging, setMerging] = useState<string | null>(null)
   const [merged, setMerged] = useState<number | null>(null)
+  const [skipped, setSkipped] = useState<{ device: string; reason: string }[]>([])
+  const [lookup, setLookup] = useState('')
+  const [looking, setLooking] = useState(false)
+  const [sightings, setSightings] = useState<TagSighting[] | null>(null)
 
   const search = useCallback(async () => {
     setSearching(true)
     setError(null)
     try {
-      setCandidates(await findCatalogues())
+      const found = await searchForCatalogues()
+      setCandidates(found.candidates)
+      setSkipped(found.skippedDevices)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not search your account.')
     } finally {
       setSearching(false)
     }
   }, [])
+
+  // Answers "where did this picture's name go?" — the only question that
+  // matters when one has gone, and one that counts of files cannot answer.
+  async function lookForName() {
+    if (!candidates || !lookup.trim()) return
+    setLooking(true)
+    setError(null)
+    setSightings(null)
+    try {
+      setSightings(await findTagsForName(lookup, candidates))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read the catalogues.')
+    } finally {
+      setLooking(false)
+    }
+  }
 
   // Searched straight away when there is no answer, because until there is
   // one the app is missing features and not saying so. State is set from the
@@ -61,9 +85,11 @@ export function CatalogueLocation({
   useEffect(() => {
     if (current) return
     let ignore = false
-    findCatalogues()
+    searchForCatalogues()
       .then((found) => {
-        if (!ignore) setCandidates(found)
+        if (ignore) return
+        setCandidates(found.candidates)
+        setSkipped(found.skippedDevices)
       })
       .catch((err) => {
         if (!ignore) setError(err instanceof Error ? err.message : 'Could not search your account.')
@@ -165,8 +191,71 @@ export function CatalogueLocation({
         <p className="mt-2 text-xs text-zinc-500">Looking through your mountpoints…</p>
       )}
 
+      {/* Named before the list, because a device missing from it explains a
+          missing tag far better than anything the list itself can say. */}
+      {skipped.length > 0 && (
+        <div className="mt-2 rounded border border-red-300 bg-red-50 p-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          <p>
+            {skipped.length} device{skipped.length === 1 ? '' : 's'} in your account could not be read, so
+            nothing in {skipped.length === 1 ? 'it' : 'them'} was searched — including any catalogue:
+          </p>
+          <ul className="mt-1 flex flex-col gap-0.5 font-mono text-[11px]">
+            {skipped.map((s) => (
+              <li key={s.device}>
+                {s.device} — {s.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {candidates && (
         <div className="mt-2 flex flex-col gap-2 text-xs">
+          {/* The direct question, rather than inference from file counts. */}
+          <div className="rounded border border-zinc-300 p-2 dark:border-zinc-700">
+            <label className="flex flex-wrap items-center gap-2">
+              <span className="text-zinc-500">A picture whose name has gone missing</span>
+              <input
+                value={lookup}
+                onChange={(e) => setLookup(e.target.value)}
+                placeholder="4822F46B-….png"
+                className="min-w-0 flex-1 rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
+              />
+              <button
+                onClick={() => void lookForName()}
+                disabled={looking || !lookup.trim()}
+                className="rounded border border-zinc-300 px-2 py-1 disabled:opacity-50 dark:border-zinc-700"
+              >
+                {looking ? 'Reading every catalogue…' : 'Where are its tags?'}
+              </button>
+            </label>
+            {sightings && (
+              <div className="mt-1">
+                {sightings.length === 0 ? (
+                  <p className="text-amber-700 dark:text-amber-500">
+                    No record of that name in any catalogue found here. Either it was never tagged, or it
+                    was tagged into a catalogue in one of the devices listed above as unreadable.
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-1">
+                    {sightings.slice(0, 20).map((s, i) => (
+                      <li key={`${s.loc.device}/${s.loc.mountpoint}/${s.md5}/${i}`}>
+                        <span className="font-medium">
+                          {s.loc.device}/{s.loc.mountpoint}
+                        </span>
+                        <span className="text-zinc-500"> — {s.path}</span>
+                        <span className="block font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+                          {Object.entries(s.tags)
+                            .map(([id, values]) => `${id}: ${values.join(', ')}`)
+                            .join(' · ') || 'no tags on the record'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
           {/* Two catalogues is the situation to be honest about: it happens by
               answering this question wrongly once, and the counts are what
               tell them apart. */}
