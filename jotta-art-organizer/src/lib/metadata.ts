@@ -444,6 +444,46 @@ function isInFolder(record: ArtworkTags, folder: MountpointRef & { path?: string
 // Tag data for one folder. The returned artworks are only that folder's, but
 // categories are always complete — saving rewrites categories.json wholesale,
 // so handing back a trimmed list would delete the rest on the next save.
+/**
+ * The stored records for particular pictures, wherever they are filed.
+ *
+ * `loadMetadataForFolder` answers "what is tagged in this folder?", and keeps
+ * only records whose stored path lies inside it. That is the wrong question
+ * for anything that has just been moved: the record still names where the
+ * picture used to be, so it is filtered out, and a caller that then writes
+ * what it has derived replaces a record it never saw — losing every tag a
+ * person typed. Content hash is the identity here; a path is only a note of
+ * where it was last seen.
+ */
+export async function loadArtworksByMd5(
+  metadataLoc: MountpointRef,
+  md5s: Iterable<string>
+): Promise<Map<string, ArtworkTags>> {
+  const wanted = new Set(md5s)
+  if (wanted.size === 0) return new Map()
+
+  const categoriesFile = await readJsonFile<{ categories: Category[] }>(
+    metadataLoc,
+    `${METADATA_FOLDER}/${CATEGORIES_FILENAME}`
+  )
+  // Not yet sharded: the whole store has to be read anyway.
+  // Only the shards these hashes fall into, and only ones the store actually
+  // has — a shard key absent from the index has never been written.
+  const records = categoriesFile
+    ? await (async () => {
+        const index = new Set(await loadShardIndex(metadataLoc))
+        const keys = [...new Set([...wanted].map(shardKeyFor))].filter((key) => index.has(key))
+        return keys.length > 0 ? loadShardsCached(metadataLoc, keys) : []
+      })()
+    : (await loadMetadata(metadataLoc)).artworks
+
+  const found = new Map<string, ArtworkTags>()
+  for (const record of records) {
+    if (wanted.has(record.md5)) found.set(record.md5, cleanArtwork(record))
+  }
+  return found
+}
+
 export async function loadMetadataForFolder(
   metadataLoc: MountpointRef,
   folder: MountpointRef & { path?: string }

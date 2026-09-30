@@ -30,6 +30,7 @@ import { readArtworkMetadata } from '@/lib/imageMetadata'
 import {
   ensureCategoriesForTags,
   loadMetadataForFolder,
+  loadArtworksByMd5,
   saveArtworkChanges,
   type ArtworkTags,
   type Category,
@@ -268,7 +269,13 @@ export async function reuniteOrphans(
   // and left alone: the cost of guessing wrong is one picture wearing
   // another's date and place, which is worse than no date at all.
   const { store } = await loadMetadataForFolder(metadataLoc, { ...destLoc, path: destPath })
-  const existingByMd5 = new Map(store.artworks.map((a) => [a.md5, a]))
+  // By content hash across the whole catalogue, not by the folder the picture
+  // is in now: a filed picture's record still names where it came from, and a
+  // record that isn't loaded is a record whose tags get written over.
+  const existingByMd5 = await loadArtworksByMd5(
+    metadataLoc,
+    found.map((r) => r.picture.md5).filter((md5): md5 is string => Boolean(md5))
+  )
   let categories: Category[] = store.categories
   const upsert: ArtworkTags[] = []
   const now = new Date().toISOString()

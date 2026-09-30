@@ -15,6 +15,7 @@ import { deriveTagsForFile } from '@/lib/batchTagImport'
 import {
   ensureCategoriesForTags,
   loadMetadataForFolder,
+  loadArtworksByMd5,
   saveArtworkChanges,
   type ArtworkTags,
   type Category,
@@ -106,8 +107,16 @@ export async function describeArrivedFiles(
     }
   }
 
+  // Looked up by content hash across the whole catalogue, never by folder.
+  // A picture that has just been filed still has a record naming where it
+  // came from, so asking "what is tagged in the folder it landed in?" leaves
+  // that record out — and writing derived tags over a record you never saw
+  // destroys every tag a person typed. That is what happened to the titles.
   const { store } = await loadMetadataForFolder(metadataLoc, { ...loc, path: rootPath })
-  const existingByMd5 = new Map(store.artworks.map((a) => [a.md5, a]))
+  const existingByMd5 = await loadArtworksByMd5(
+    metadataLoc,
+    groups.map((g) => g.liveEntry.md5 as string)
+  )
 
   let cursor = 0
   let done = 0
