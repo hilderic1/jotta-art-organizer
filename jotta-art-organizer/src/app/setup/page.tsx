@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { setup, getSessionStatus, disconnectSession, type SessionStatus } from '@/lib/api'
 import { FolderBrowser } from '@/components/FolderBrowser'
 import { IntakeSettings } from '@/components/IntakeSettings'
+import { CatalogueLocation } from '@/components/CatalogueLocation'
 
 export default function SetupPage() {
   const router = useRouter()
@@ -55,8 +56,16 @@ export default function SetupPage() {
           </button>
         </div>
 
-        {/* Only once there's somewhere to keep the settings — the catalogue
-            location is chosen on first use of the Catalogue. */}
+        {/* Above filing, because filing depends on it: without a catalogue
+            location there is nowhere to keep a setting, and the section below
+            simply isn't there — which reads as the feature having vanished. */}
+        <CatalogueLocation
+          current={status.metadataLocation ?? null}
+          onChange={(loc) =>
+            setStatus((prev) => (prev?.authenticated ? { ...prev, metadataLocation: loc } : prev))
+          }
+        />
+
         {status.metadataLocation && <IntakeSettings metadataLoc={status.metadataLocation} />}
 
         {/* A one-off check rather than a place you work, so it's linked from
