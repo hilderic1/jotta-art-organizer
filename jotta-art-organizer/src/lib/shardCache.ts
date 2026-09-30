@@ -41,6 +41,47 @@ function keyFor(scope: string, shardKey: string): string {
   return `${scope}::${shardKey}`
 }
 
+/**
+ * Everything this device still holds for a catalogue, whatever the shard.
+ *
+ * Normally pointless — the cache exists to answer "have these shards
+ * changed?" and is asked about specific keys. It matters when the copy in
+ * Jottacloud has been damaged and a device that hasn't caught up yet is
+ * holding the last sound copy of the records. A stale cache is usually a
+ * liability; here it is an archive.
+ */
+export async function readAllCachedShards(scope: string): Promise<Map<string, CachedShard>> {
+  const found = new Map<string, CachedShard>()
+  const db = await open()
+  if (!db) return found
+
+  await new Promise<void>((resolve) => {
+    try {
+      const tx = db.transaction(STORE, 'readonly')
+      const request = tx.objectStore(STORE).openCursor()
+      const prefix = `${scope}::`
+      request.onsuccess = () => {
+        const cursor = request.result
+        if (!cursor) {
+          resolve()
+          return
+        }
+        const key = String(cursor.key)
+        if (key.startsWith(prefix)) {
+          found.set(key.slice(prefix.length), cursor.value as CachedShard)
+        }
+        cursor.continue()
+      }
+      request.onerror = () => resolve()
+      tx.onabort = () => resolve()
+    } catch {
+      resolve()
+    }
+  })
+
+  return found
+}
+
 export async function readCachedShards(
   scope: string,
   shardKeys: string[]

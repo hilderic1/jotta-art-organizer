@@ -11,6 +11,8 @@
 // today's answer, whatever an older copy said. Content hash is the identity,
 // so it does not matter that a picture has since been moved or renamed.
 import { listFolder, listRevisions, readRevision, jottaTime, type MountpointRef } from '@/lib/api'
+import { readJsonFile } from '@/lib/jsonStore'
+import { readAllCachedShards } from '@/lib/shardCache'
 import {
   loadArtworksByMd5,
   saveArtworkChanges,
@@ -159,6 +161,50 @@ export async function planRestore(
 }
 
 const SHARDS_FOLDER = '.jotta-art-organizer/artwork-shards'
+const LEGACY_PATH = '.jotta-art-organizer/metadata.json'
+
+/**
+ * The catalogue as it was before it was split into per-hash files.
+ *
+ * That single file is read when migrating and never written again, so it
+ * still holds every record as of the day the split happened — including tags
+ * that have since been written over. It reaches back only that far, which is
+ * its limit and worth saying rather than discovering.
+ */
+export async function readLegacyStore(
+  metadataLoc: MountpointRef
+): Promise<{ name: string; text: string } | null> {
+  const raw = await readJsonFile<unknown>(metadataLoc, LEGACY_PATH).catch(() => null)
+  if (!raw) return null
+  return { name: 'metadata.json (before the catalogue was split up)', text: JSON.stringify(raw) }
+}
+
+/**
+ * What this device is still holding of the catalogue.
+ *
+ * The cache is refreshed per shard only when Jottacloud says that shard has
+ * changed, so a device that hasn't loaded the catalogue since the damage is
+ * holding the records as they were. Opening the Catalogue on such a device
+ * replaces them, which is why this is worth reaching for early and on every
+ * device before anything else is done there.
+ */
+export async function readDeviceCache(
+  metadataLoc: MountpointRef
+): Promise<{ files: { name: string; text: string }[]; shards: number; records: number }> {
+  const scope = `${metadataLoc.device}/${metadataLoc.mountpoint}`
+  const cached = await readAllCachedShards(scope)
+  const files: { name: string; text: string }[] = []
+  let records = 0
+  for (const [shardKey, entry] of cached) {
+    if (!entry?.records?.length) continue
+    records += entry.records.length
+    files.push({
+      name: `${shardKey}.json (this device, held since ${entry.modified || 'an unknown time'})`,
+      text: JSON.stringify(entry.records),
+    })
+  }
+  return { files, shards: files.length, records }
+}
 
 export type HistoryReport = {
   /** Shard files looked at. */

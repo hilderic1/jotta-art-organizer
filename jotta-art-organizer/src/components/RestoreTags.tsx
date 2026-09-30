@@ -6,6 +6,8 @@ import {
   planRestore,
   applyRestore,
   gatherHistory,
+  readDeviceCache,
+  readLegacyStore,
   type RestorePlan,
   type HistoryReport,
 } from '@/lib/restoreTags'
@@ -36,6 +38,52 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
   const [history, setHistory] = useState<HistoryReport | null>(null)
   const [showDetail, setShowDetail] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  async function fromDevice() {
+    setError(null)
+    setPlan(null)
+    setHistory(null)
+    setRestored(null)
+    setBusy('Reading what this device is holding…')
+    try {
+      const held = await readDeviceCache(metadataLoc)
+      setNames(held.files.map((f) => f.name))
+      if (held.files.length === 0) {
+        setError(
+          'This device is holding nothing — either it has never loaded the catalogue, or its copy has been cleared. Try another device, and open nothing but Setup on it.'
+        )
+        return
+      }
+      setBusy(`Comparing ${held.records.toLocaleString()} held records against the catalogue…`)
+      setPlan(await planRestore(metadataLoc, held.files))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read this device’s copy.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function fromLegacy() {
+    setError(null)
+    setPlan(null)
+    setHistory(null)
+    setRestored(null)
+    setBusy('Reading the single-file catalogue…')
+    try {
+      const legacy = await readLegacyStore(metadataLoc)
+      if (!legacy) {
+        setError('There is no single-file catalogue in this mountpoint.')
+        return
+      }
+      setNames([legacy.name])
+      setBusy('Comparing it against the catalogue…')
+      setPlan(await planRestore(metadataLoc, [legacy]))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read it.')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   async function fromHistory() {
     const cutoff = new Date(before)
@@ -131,6 +179,42 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
           </li>
         </ol>
       )}
+
+      {/* First, and on every device, because this is the only source that
+          gets worse while you think about it: loading the catalogue on a
+          device replaces what it was holding. */}
+      <div className="mt-2 rounded border border-emerald-300 bg-emerald-50 p-2 text-xs dark:border-emerald-800 dark:bg-emerald-950">
+        <p>
+          <strong>Try this first, on each device.</strong> Every device keeps its own copy of the tags so a
+          repeat visit doesn&rsquo;t refetch them, and it only refreshes a file when Jottacloud says that
+          file changed. A device that hasn&rsquo;t loaded the catalogue since the damage is still holding
+          the records as they were — but opening the Catalogue on it replaces them.
+        </p>
+        <button
+          onClick={() => void fromDevice()}
+          disabled={busy !== null}
+          className="mt-1 rounded bg-emerald-700 px-2 py-1 font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+        >
+          Look at what this device is holding
+        </button>
+      </div>
+
+      {/* Second: reaches back only to the day the catalogue was split up, but
+          it reaches there reliably, because nothing has written it since. */}
+      <div className="mt-2 rounded border border-zinc-300 p-2 text-xs dark:border-zinc-700">
+        <p className="text-zinc-600 dark:text-zinc-400">
+          Before the catalogue was split into one file per content hash, it was a single file — read when
+          it was split up and never written since. Whatever it holds is sound, as far back as that day and
+          no further.
+        </p>
+        <button
+          onClick={() => void fromLegacy()}
+          disabled={busy !== null}
+          className="mt-1 rounded border border-zinc-300 px-2 py-1 font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+        >
+          Look in the single-file catalogue
+        </button>
+      </div>
 
       {/* The whole job in one press, since there are up to 256 of these files
           and downloading them by hand is not a serious suggestion. */}
