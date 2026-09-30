@@ -292,7 +292,16 @@ export function CatalogueLocation({
                             `${c.shards.toLocaleString()} tag file${c.shards === 1 ? '' : 's'}`,
                             size(c.bytes),
                             c.hasCategories ? null : 'no category list',
-                            c.hasLegacy ? 'older format' : null,
+                            // A metadata.json beside a shard folder is a
+                            // leftover from the migration, not the format in
+                            // use — saying "older format" of a catalogue with
+                            // hundreds of shard files reads as a warning
+                            // about the wrong thing.
+                            c.hasLegacy
+                              ? c.shards > 0
+                                ? 'plus a leftover pre-2025 file, unused'
+                                : 'in the older single-file format'
+                              : null,
                             c.changedAt ? `last changed ${new Date(c.changedAt).toLocaleDateString()}` : null,
                           ]
                             .filter(Boolean)
