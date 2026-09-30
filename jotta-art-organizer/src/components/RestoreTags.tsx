@@ -18,6 +18,13 @@ import {
  * older copy of the file says — so this cannot undo work done since, and
  * running it twice does nothing the second time.
  */
+/**
+ * When filing started writing over records instead of adding to them: the
+ * deploy of the change that did it. Anything a tag file was written before
+ * this is sound; anything after may be missing what a person typed.
+ */
+const DAMAGE_BEGAN = '2026-09-21T15:39'
+
 export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
   const [plan, setPlan] = useState<RestorePlan | null>(null)
   const [names, setNames] = useState<string[]>([])
@@ -25,13 +32,13 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
   const [restored, setRestored] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
-  const [before, setBefore] = useState('')
+  const [before, setBefore] = useState(DAMAGE_BEGAN)
   const [history, setHistory] = useState<HistoryReport | null>(null)
   const [showDetail, setShowDetail] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   async function fromHistory() {
-    const cutoff = new Date(`${before}T00:00:00`)
+    const cutoff = new Date(before)
     if (Number.isNaN(cutoff.getTime())) {
       setError('That date could not be read.')
       return
@@ -128,15 +135,25 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
       {/* The whole job in one press, since there are up to 256 of these files
           and downloading them by hand is not a serious suggestion. */}
       <div className="mt-2 flex flex-wrap items-end gap-2 text-xs">
+        {/* To the minute, not the day. The overwriting started at a known
+            moment, and a version written earlier that same morning is a good
+            one — rounding the cutoff back to midnight would throw those away
+            and, for a file written often, they may be all that is left. */}
         <label className="flex flex-col gap-1">
           <span className="text-zinc-500">Take the newest version from before</span>
           <input
-            type="date"
+            type="datetime-local"
             value={before}
             onChange={(e) => setBefore(e.target.value)}
             className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
           />
         </label>
+        <button
+          onClick={() => setBefore(DAMAGE_BEGAN)}
+          className="text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          Use when it started
+        </button>
         <button
           onClick={() => void fromHistory()}
           disabled={busy !== null || !before}
