@@ -109,7 +109,8 @@ export function CatalogueLocation({
           <strong>
             {current.device}/{current.mountpoint}
           </strong>
-          . Remembered on this device, so reconnecting your account won&rsquo;t ask again.{' '}
+          . Remembered on this device, and found again by looking in your account when it isn&rsquo;t —
+          so the iPad, the phone and the laptop all reach the same catalogue without being asked.{' '}
           <button
             onClick={() => void search()}
             disabled={searching}

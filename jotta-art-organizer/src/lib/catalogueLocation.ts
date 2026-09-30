@@ -108,6 +108,35 @@ export function rememberedLocation(): MountpointRef | null {
   }
 }
 
+/**
+ * Works out where the catalogue is without asking, where that can be done.
+ *
+ * This app is opened from an iPad, an Android phone and a laptop, and the
+ * session it runs in is per device — so remembering the answer on one device
+ * does nothing for the next, which gets asked afresh and can answer wrongly
+ * afresh. The account is the only place the answer is actually true of, and
+ * it can be read from there: a catalogue is a folder with tag files in it.
+ *
+ * Asked only when the account is genuinely ambiguous — no catalogue anywhere,
+ * or more than one — because those are the cases where a person knows
+ * something the files don't say.
+ */
+export async function resolveCatalogueLocation(): Promise<
+  { loc: MountpointRef; how: 'remembered' | 'found' } | { loc: null; candidates: CatalogueCandidate[] }
+> {
+  const remembered = rememberedLocation()
+  if (remembered) return { loc: remembered, how: 'remembered' }
+
+  const candidates = await findCatalogues()
+  const real = candidates.filter(holdsCatalogue)
+  // Exactly one: there is nothing to choose between, so choosing is noise.
+  if (real.length === 1) {
+    rememberLocation(real[0].loc)
+    return { loc: real[0].loc, how: 'found' }
+  }
+  return { loc: null, candidates }
+}
+
 export function rememberLocation(loc: MountpointRef): void {
   try {
     localStorage.setItem(REMEMBERED_KEY, JSON.stringify({ device: loc.device, mountpoint: loc.mountpoint }))

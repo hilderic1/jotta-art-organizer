@@ -10,7 +10,7 @@ import {
   setMetadataLocation,
   type SessionStatus,
 } from '@/lib/api'
-import { rememberedLocation } from '@/lib/catalogueLocation'
+import { resolveCatalogueLocation } from '@/lib/catalogueLocation'
 import { FolderBrowser } from '@/components/FolderBrowser'
 import { IntakeSettings } from '@/components/IntakeSettings'
 import { CatalogueLocation } from '@/components/CatalogueLocation'
@@ -24,15 +24,16 @@ export default function SetupPage() {
 
   useEffect(() => {
     getSessionStatus().then(async (session) => {
-      // A reconnect clears the catalogue location from the session, and being
-      // asked for it again is how a second, empty catalogue gets started
-      // somewhere else. Restored from the device instead, before anything is
-      // shown as missing.
+      // A reconnect clears the catalogue location from the session, and every
+      // device has its own session — so being asked afresh is how a second,
+      // empty catalogue gets started in the wrong mountpoint. Worked out from
+      // the account instead, which is the only place the answer is true of,
+      // before anything is shown as missing.
       if (session.authenticated && !session.metadataLocation) {
-        const remembered = rememberedLocation()
-        if (remembered) {
-          await setMetadataLocation(remembered).catch(() => null)
-          setStatus({ ...session, metadataLocation: remembered })
+        const resolved = await resolveCatalogueLocation().catch(() => null)
+        if (resolved?.loc) {
+          await setMetadataLocation(resolved.loc).catch(() => null)
+          setStatus({ ...session, metadataLocation: resolved.loc })
           return
         }
       }
