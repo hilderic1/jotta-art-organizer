@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { rememberedLocation, rememberLocation } from '@/lib/catalogueLocation'
 import { getSessionStatus, setMetadataLocation, type SessionStatus, type MountpointRef, type JottaEntry } from '@/lib/api'
 import { loadMetadataForFolder, saveArtworkChanges, ensureCategoriesForTags, type MetadataStore, type Category, type ArtworkTags } from '@/lib/metadata'
 import { LocationPicker } from '@/components/LocationPicker'
@@ -28,7 +29,20 @@ export default function CataloguePage() {
   const [reloadNonce, setReloadNonce] = useState(0)
 
   useEffect(() => {
-    getSessionStatus().then(setSession)
+    getSessionStatus().then(async (loaded) => {
+      // Restored from the device rather than asked for again: being asked
+      // again after a reconnect is how a second, empty catalogue gets
+      // started in the wrong mountpoint.
+      if (loaded.authenticated && !loaded.metadataLocation) {
+        const remembered = rememberedLocation()
+        if (remembered) {
+          await setMetadataLocation(remembered).catch(() => null)
+          setSession({ ...loaded, metadataLocation: remembered })
+          return
+        }
+      }
+      setSession(loaded)
+    })
   }, [])
 
   useEffect(() => {
@@ -88,6 +102,7 @@ export default function CataloguePage() {
     setSettingUpLocation(true)
     try {
       await setMetadataLocation(loc)
+      rememberLocation(loc)
       setSession((prev) => (prev?.authenticated ? { ...prev, metadataLocation: loc } : prev))
     } finally {
       setSettingUpLocation(false)

@@ -3,7 +3,14 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { setup, getSessionStatus, disconnectSession, type SessionStatus } from '@/lib/api'
+import {
+  setup,
+  getSessionStatus,
+  disconnectSession,
+  setMetadataLocation,
+  type SessionStatus,
+} from '@/lib/api'
+import { rememberedLocation } from '@/lib/catalogueLocation'
 import { FolderBrowser } from '@/components/FolderBrowser'
 import { IntakeSettings } from '@/components/IntakeSettings'
 import { CatalogueLocation } from '@/components/CatalogueLocation'
@@ -16,7 +23,21 @@ export default function SetupPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    getSessionStatus().then(setStatus)
+    getSessionStatus().then(async (session) => {
+      // A reconnect clears the catalogue location from the session, and being
+      // asked for it again is how a second, empty catalogue gets started
+      // somewhere else. Restored from the device instead, before anything is
+      // shown as missing.
+      if (session.authenticated && !session.metadataLocation) {
+        const remembered = rememberedLocation()
+        if (remembered) {
+          await setMetadataLocation(remembered).catch(() => null)
+          setStatus({ ...session, metadataLocation: remembered })
+          return
+        }
+      }
+      setStatus(session)
+    })
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {
