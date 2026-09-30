@@ -407,7 +407,9 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
         <div className="mt-3 rounded border border-zinc-200 p-2 text-xs dark:border-zinc-800">
           <p className="text-zinc-500">
             Moving pictures out leaves their folders behind, and leaves decisions recorded about
-            pictures that are no longer there.
+            pictures that are no longer there. Both the folders above and{' '}
+            {config?.dest ? label(config.dest) : 'the artwork folder'} are looked through — hollow folders
+            turn up wherever pictures have been moved from, either of them.
           </p>
           {leftovers === null ? (
             <button

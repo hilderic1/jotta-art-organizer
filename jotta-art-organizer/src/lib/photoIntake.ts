@@ -87,6 +87,10 @@ function locOf(where: { device: string; mountpoint: string }): MountpointRef {
   return { device: where.device, mountpoint: where.mountpoint }
 }
 
+export function sameFolder(a: FolderRef, b: FolderRef): boolean {
+  return a.device === b.device && a.mountpoint === b.mountpoint && a.path === b.path
+}
+
 export type IntakeMatch = {
   md5: string
   path: string
@@ -704,14 +708,24 @@ export async function findLeftovers(
   opts?: { signal?: AbortSignal }
 ): Promise<Leftovers> {
   const sources = intakeSources(config)
+  // The artwork folder is walked for empty folders too, but is not a source:
+  // moving pieces about inside it, or out of it, leaves the same hollow
+  // folders behind, while the pictures in it are artwork rather than
+  // photographs that have been decided about. So it counts for one of this
+  // function's two jobs and not the other.
+  const scanned = [
+    ...sources.map((folder) => ({ folder, isSource: true })),
+    ...(sources.some((s) => sameFolder(s, config.dest)) ? [] : [{ folder: config.dest, isSource: false }]),
+  ]
   // A walk of an archive is tens of thousands of listings; one that stays
   // broken after its retries shouldn't throw away the other thirty thousand.
   // It is counted instead, and counted failures stop anything being removed.
   const unreadable: string[] = []
   const [walks, examined] = await Promise.all([
     Promise.all(
-      sources.map(async (folder) => ({
+      scanned.map(async ({ folder, isSource }) => ({
         folder,
+        isSource,
         walk: await walkTree(locOf(folder), folder.path, {
           signal: opts?.signal,
           onFolderError: (path) => unreadable.push(path),
@@ -727,12 +741,16 @@ export async function findLeftovers(
   let pictures = 0
   let folderCount = 0
 
-  for (const { folder, walk } of walks) {
+  for (const { folder, isSource, walk } of walks) {
     // Every folder on the way up from a picture holds a picture, so far as
     // emptying goes: a folder is only empty when nothing beneath it is a file.
     const holdsPictures = new Set<string>([''])
     for (const file of walk.files) {
-      present.add(file.md5)
+      // Only the photo folders answer "have I decided about this picture?".
+      // Counting the artwork folder's contents as present would make every
+      // decision about a filed piece look current, which is the opposite of
+      // what pruning is for.
+      if (isSource) present.add(file.md5)
       let at = parentOf(file.relPath)
       for (;;) {
         if (holdsPictures.has(at)) break
@@ -753,8 +771,13 @@ export async function findLeftovers(
       if (holdsPictures.has(parentOf(rel))) tops.push(entry)
     }
 
-    pictures += walk.files.length
-    folderCount += walk.folderRelPaths.length + 1
+    // The reported totals describe the photo folders, which is what the
+    // screen says they are. The artwork folder contributes its empty folders
+    // and nothing else.
+    if (isSource) {
+      pictures += walk.files.length
+      folderCount += walk.folderRelPaths.length + 1
+    }
   }
 
   let stale = 0
