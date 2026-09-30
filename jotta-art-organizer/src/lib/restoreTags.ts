@@ -10,7 +10,7 @@
 // catalogue is now missing. Never a replacement: a tag that exists today is
 // today's answer, whatever an older copy said. Content hash is the identity,
 // so it does not matter that a picture has since been moved or renamed.
-import type { MountpointRef } from '@/lib/api'
+import { listFolder, listRevisions, readRevision, jottaTime, type MountpointRef } from '@/lib/api'
 import {
   loadArtworksByMd5,
   saveArtworkChanges,
@@ -156,6 +156,87 @@ export async function planRestore(
   }
 
   return plan
+}
+
+const SHARDS_FOLDER = '.jotta-art-organizer/artwork-shards'
+
+export type HistoryReport = {
+  /** Shard files looked at. */
+  files: number
+  /** Ones with any history kept at all. */
+  withHistory: number
+  /** Ones where a version older than the cutoff exists — the recoverable ones. */
+  usable: number
+  /** The oldest version found anywhere, so "history doesn't reach back far
+   *  enough" is a statement of fact rather than a guess. */
+  oldest?: number
+  /** Per file, for reading: what is available and what was chosen. */
+  detail: { name: string; kept: number; chosen?: number; chosenAt?: number; oldestAt?: number; error?: string }[]
+  /** The chosen versions' contents, ready for planRestore. */
+  files_: { name: string; text: string }[]
+}
+
+/**
+ * Reads the history of every shard file and fetches, for each, the newest
+ * version older than `before`.
+ *
+ * There are up to 256 of these, so doing it by hand is not a serious
+ * suggestion. How far Jottacloud's history reaches is its own business and
+ * undocumented, so this reports what it found rather than assuming: a file
+ * whose oldest kept version is already after the cutoff cannot be recovered,
+ * and saying so is more use than a restore that quietly covers half the
+ * library.
+ */
+export async function gatherHistory(
+  metadataLoc: MountpointRef,
+  before: Date,
+  opts?: { onProgress?: (done: number, total: number) => void; signal?: AbortSignal }
+): Promise<HistoryReport> {
+  const listing = await listFolder(metadataLoc, SHARDS_FOLDER)
+  const shards = listing.files.filter((f) => f.name.endsWith('.json') && f.name !== '_index.json')
+  const cutoff = before.getTime()
+
+  const report: HistoryReport = { files: shards.length, withHistory: 0, usable: 0, detail: [], files_: [] }
+  let done = 0
+
+  for (const shard of shards) {
+    if (opts?.signal?.aborted) break
+    try {
+      const revisions = await listRevisions(metadataLoc, shard.path)
+      const dated = revisions
+        .map((r) => ({ r, at: jottaTime(r.modified) || jottaTime(r.created) || 0 }))
+        .filter((x) => x.at > 0)
+      const older = dated.filter((x) => x.at < cutoff).sort((a, b) => b.at - a.at)
+      const oldestAt = dated.length > 0 ? Math.min(...dated.map((x) => x.at)) : undefined
+      if (revisions.length > 1) report.withHistory++
+      if (oldestAt && (!report.oldest || oldestAt < report.oldest)) report.oldest = oldestAt
+
+      if (older.length === 0) {
+        report.detail.push({ name: shard.name, kept: revisions.length, oldestAt })
+      } else {
+        const chosen = older[0]
+        const text = await readRevision(metadataLoc, shard.path, chosen.r.number)
+        report.files_.push({ name: `${shard.name}@${chosen.r.number}`, text })
+        report.usable++
+        report.detail.push({
+          name: shard.name,
+          kept: revisions.length,
+          chosen: chosen.r.number,
+          chosenAt: chosen.at,
+          oldestAt,
+        })
+      }
+    } catch (err) {
+      report.detail.push({
+        name: shard.name,
+        kept: 0,
+        error: err instanceof Error ? err.message : 'Could not read its history.',
+      })
+    }
+    opts?.onProgress?.(++done, shards.length)
+  }
+
+  return report
 }
 
 export async function applyRestore(metadataLoc: MountpointRef, plan: RestorePlan): Promise<number> {

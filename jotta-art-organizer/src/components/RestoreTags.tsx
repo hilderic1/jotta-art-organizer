@@ -2,7 +2,13 @@
 
 import { useRef, useState } from 'react'
 import type { MountpointRef } from '@/lib/api'
-import { planRestore, applyRestore, type RestorePlan } from '@/lib/restoreTags'
+import {
+  planRestore,
+  applyRestore,
+  gatherHistory,
+  type RestorePlan,
+  type HistoryReport,
+} from '@/lib/restoreTags'
 
 /**
  * Puts back tags that describing-on-arrival wrote over, from older versions of
@@ -19,7 +25,38 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
   const [restored, setRestored] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
+  const [before, setBefore] = useState('')
+  const [history, setHistory] = useState<HistoryReport | null>(null)
+  const [showDetail, setShowDetail] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  async function fromHistory() {
+    const cutoff = new Date(`${before}T00:00:00`)
+    if (Number.isNaN(cutoff.getTime())) {
+      setError('That date could not be read.')
+      return
+    }
+    setError(null)
+    setPlan(null)
+    setHistory(null)
+    setRestored(null)
+    setBusy('Reading each tag file’s history…')
+    try {
+      const found = await gatherHistory(metadataLoc, cutoff, {
+        onProgress: (done, total) => setBusy(`Reading histories — ${done} of ${total}`),
+      })
+      setHistory(found)
+      setNames(found.files_.map((f) => f.name))
+      if (found.files_.length > 0) {
+        setBusy('Comparing against the catalogue…')
+        setPlan(await planRestore(metadataLoc, found.files_))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read the file history.')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   async function read(files: FileList | null) {
     if (!files || files.length === 0) return
@@ -88,7 +125,69 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
         </ol>
       )}
 
+      {/* The whole job in one press, since there are up to 256 of these files
+          and downloading them by hand is not a serious suggestion. */}
+      <div className="mt-2 flex flex-wrap items-end gap-2 text-xs">
+        <label className="flex flex-col gap-1">
+          <span className="text-zinc-500">Take the newest version from before</span>
+          <input
+            type="date"
+            value={before}
+            onChange={(e) => setBefore(e.target.value)}
+            className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
+          />
+        </label>
+        <button
+          onClick={() => void fromHistory()}
+          disabled={busy !== null || !before}
+          className="rounded bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+        >
+          Read the file history
+        </button>
+        {busy && <span className="text-zinc-400">{busy}</span>}
+      </div>
+
+      {history && (
+        <div className="mt-2 text-xs">
+          <p>
+            {history.files.toLocaleString()} tag files, {history.withHistory.toLocaleString()} with any
+            history kept, <strong>{history.usable.toLocaleString()}</strong> with a version from before
+            that date.
+            {history.oldest && (
+              <span className="block text-zinc-500">
+                The oldest version Jottacloud still holds anywhere is{' '}
+                {new Date(history.oldest).toLocaleString()}.
+                {history.usable === 0 &&
+                  ' Nothing reaches back past your cutoff, so there is nothing to recover from history — try a later date, or the manual route below.'}
+              </span>
+            )}
+          </p>
+          <button
+            onClick={() => setShowDetail((v) => !v)}
+            className="mt-1 text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            {showDetail ? 'Hide the per-file detail' : 'Show the per-file detail'}
+          </button>
+          {showDetail && (
+            <ul className="mt-1 flex max-h-48 flex-col gap-0.5 overflow-y-auto font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+              {history.detail.map((d) => (
+                <li key={d.name} className={d.error ? 'text-red-600 dark:text-red-400' : undefined}>
+                  {d.name}: {d.error
+                    ? d.error
+                    : d.chosen != null
+                      ? `taking revision ${d.chosen} of ${d.kept} (${d.chosenAt ? new Date(d.chosenAt).toLocaleDateString() : '?'})`
+                      : `${d.kept} version${d.kept === 1 ? '' : 's'} kept, none before the cutoff${
+                          d.oldestAt ? ` — oldest ${new Date(d.oldestAt).toLocaleDateString()}` : ''
+                        }`}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-zinc-500">Or hand over files downloaded yourself:</span>
         <input
           ref={inputRef}
           type="file"
@@ -97,7 +196,6 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
           onChange={(e) => void read(e.target.files)}
           className="text-xs"
         />
-        {busy && <span className="text-zinc-400">{busy}</span>}
       </div>
 
       {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}

@@ -356,6 +356,93 @@ export async function fetchFile(
   return fetch(url, { headers })
 }
 
+export type FileRevision = {
+  /** JFS's own revision number, which is what fetching one needs. */
+  number: number
+  state?: string
+  size?: number
+  md5?: string
+  /** Jottacloud's timestamp, raw — normalised at the point of use. */
+  modified?: string
+  created?: string
+  /** The revision in use now, as against one kept in history. */
+  current: boolean
+}
+
+/**
+ * The versions Jottacloud is keeping of one file.
+ *
+ * Asking for a file's path without `mode=bin` returns its detail XML, which
+ * carries the revision in use and a `<revisions>` list of the older ones it
+ * has kept. How many it keeps is Jottacloud's business and not documented
+ * anywhere this app can read, so the answer is reported as found rather than
+ * relied on: a file with no history says so, and a caller decides what that
+ * means.
+ */
+export async function listFileRevisions(
+  accessToken: string,
+  username: string,
+  device: string,
+  mountpoint: string,
+  path: string[]
+): Promise<FileRevision[]> {
+  const res = await jfsFetch(jfsUrl(username, device, mountpoint, path), accessToken)
+  if (!res.ok) {
+    throw new Error(`Failed to read revisions of "${path.join('/')}" (${res.status}).`)
+  }
+  const doc = xmlParser.parse(await res.text())
+  const rawFile = doc.file
+  const file = Array.isArray(rawFile) ? rawFile[0] : rawFile
+  if (!file) return []
+
+  const num = (value: unknown): number | undefined => {
+    const text = textOf(value) || (typeof value === 'number' ? String(value) : '')
+    if (!text) return undefined
+    const n = Number(text)
+    return Number.isFinite(n) ? n : undefined
+  }
+  const shape = (raw: unknown, current: boolean): FileRevision | null => {
+    if (!raw || typeof raw !== 'object') return null
+    const r = raw as Record<string, unknown>
+    const number = num(r.number)
+    if (number == null) return null
+    return {
+      number,
+      state: textOf(r.state) || undefined,
+      size: num(r.size),
+      md5: textOf(r.md5) || undefined,
+      modified: textOf(r.modified) || undefined,
+      created: textOf(r.created) || undefined,
+      current,
+    }
+  }
+
+  const revisions: FileRevision[] = []
+  const currentRev = shape(file.currentRevision, true)
+  if (currentRev) revisions.push(currentRev)
+  const rawOlder = (file.revisions as { revision?: unknown } | undefined)?.revision
+  for (const raw of Array.isArray(rawOlder) ? rawOlder : rawOlder ? [rawOlder] : []) {
+    const rev = shape(raw, false)
+    if (rev) revisions.push(rev)
+  }
+
+  // Newest first, so "the newest one older than X" is a scan from the front.
+  return revisions.sort((a, b) => b.number - a.number)
+}
+
+/** One specific revision's bytes. */
+export async function fetchFileRevision(
+  accessToken: string,
+  username: string,
+  device: string,
+  mountpoint: string,
+  path: string[],
+  revision: number
+): Promise<Response> {
+  const url = `${jfsUrl(username, device, mountpoint, path)}?mode=bin&revision=${revision}`
+  return fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+}
+
 // Soft-delete only (moves to Jottacloud's trash, recoverable) — this app
 // never exposes the permanent "rm=true" variant.
 export async function deleteFile(

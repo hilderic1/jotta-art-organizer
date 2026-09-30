@@ -71,6 +71,51 @@ export async function listAccountDevices(): Promise<{
   return { mountpoints: data.mountpoints ?? [], skipped: data.skipped ?? [] }
 }
 
+export type FileRevision = {
+  number: number
+  state?: string
+  size?: number
+  md5?: string
+  modified?: string
+  created?: string
+  current: boolean
+}
+
+/** What versions Jottacloud is keeping of a file. Newest first. */
+export async function listRevisions(loc: MountpointRef, path: string): Promise<FileRevision[]> {
+  const params = new URLSearchParams({ device: loc.device, mountpoint: loc.mountpoint, path })
+  const res = await fetch(`/api/files/revisions?${params.toString()}`)
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error ?? 'Failed to read the file history.')
+  return data.revisions ?? []
+}
+
+/** One older version's text. */
+export async function readRevision(
+  loc: MountpointRef,
+  path: string,
+  revision: number
+): Promise<string> {
+  const params = new URLSearchParams({
+    device: loc.device,
+    mountpoint: loc.mountpoint,
+    path,
+    revision: String(revision),
+  })
+  const res = await fetch(`/api/files/revisions?${params.toString()}`)
+  const text = await res.text()
+  if (!res.ok) {
+    let message = 'Failed to read that version.'
+    try {
+      message = (JSON.parse(text) as { error?: string }).error ?? message
+    } catch {
+      // Not JSON: the status is all there is to go on.
+    }
+    throw new Error(message)
+  }
+  return text
+}
+
 export type JottaEntry = {
   name: string
   path: string
