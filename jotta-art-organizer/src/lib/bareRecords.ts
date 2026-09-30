@@ -83,9 +83,16 @@ export type BareReport = {
    *  so "titles are missing" is distinguishable from "titles were never
    *  used". */
   typedCategories: { category: string; name: string; count: number }[]
-  /** Bare records by the folder they sit in, worst first: the damage follows
-   *  filing, so it clusters. */
-  byFolder: { folder: string; count: number }[]
+  /**
+   * Per folder, how many carry something typed and how many don't.
+   *
+   * Both, because the bare count alone is meaningless: a folder of six
+   * thousand photographs nobody ever titled looks identical to a folder
+   * whose titles were destroyed. A folder holding some of each is the one
+   * worth looking at — that is describing that was started and is now
+   * partly gone, or partly done.
+   */
+  byFolder: { folder: string; bare: number; described: number }[]
   examples: BareRecord[]
 }
 
@@ -118,19 +125,25 @@ export async function findBareRecords(metadataLoc: MountpointRef): Promise<BareR
   }
 
   const perCategory = new Map<string, number>()
-  const perFolder = new Map<string, number>()
+  const perFolder = new Map<string, { bare: number; described: number }>()
+  const tally = (folder: string) => {
+    const held = perFolder.get(folder) ?? { bare: 0, described: 0 }
+    perFolder.set(folder, held)
+    return held
+  }
 
   for (const record of store.artworks) {
     const typed = typedIn(record)
+    const folder = folderOf(record.path ?? '')
     if (typed.length > 0) {
       report.described++
+      tally(folder).described++
       for (const id of typed) perCategory.set(id, (perCategory.get(id) ?? 0) + 1)
       continue
     }
 
     report.bare++
-    const folder = folderOf(record.path ?? '')
-    perFolder.set(folder, (perFolder.get(folder) ?? 0) + 1)
+    tally(folder).bare++
     if (report.examples.length < EXAMPLE_LIMIT) {
       report.examples.push({
         md5: record.md5,
@@ -146,9 +159,16 @@ export async function findBareRecords(metadataLoc: MountpointRef): Promise<BareR
   report.typedCategories = [...perCategory.entries()]
     .map(([category, count]) => ({ category, name: nameOf(store.categories, category), count }))
     .sort((a, b) => b.count - a.count)
+  // Folders where describing has happened come first, and by how much of it
+  // is missing rather than by size: a folder with some typed tags and many
+  // without is where something was lost or left half done, while a folder
+  // with none at all is a folder nobody has described, however large.
   report.byFolder = [...perFolder.entries()]
-    .map(([folder, count]) => ({ folder, count }))
-    .sort((a, b) => b.count - a.count)
+    .map(([folder, counts]) => ({ folder, ...counts }))
+    .sort((a, b) => {
+      if ((a.described > 0) !== (b.described > 0)) return a.described > 0 ? -1 : 1
+      return b.bare - a.bare
+    })
 
   return report
 }

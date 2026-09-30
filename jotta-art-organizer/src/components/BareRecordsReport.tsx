@@ -37,9 +37,13 @@ export function BareRecordsReport({ metadataLoc }: { metadataLoc: MountpointRef 
       <h2 className="text-sm font-medium">What still has nothing written about it</h2>
       <p className="mt-1 text-xs text-zinc-500">
         Counts the pictures whose record holds only what the app read out of the file — a date, a camera,
-        a program name — and nothing anyone typed. That is what a record looks like after the overwriting
-        bug reached it, and also what one looks like if it was never described, which cannot be told apart
-        and needs the same thing either way.
+        a program name — and nothing anyone typed.
+      </p>
+      <p className="mt-1 text-xs text-zinc-500">
+        Expect this to be most of a photo library: a bulk import describes every picture from its file,
+        and nobody hand-titles sixty thousand photographs. A large untyped count is not damage on its
+        own. What is worth looking at is a folder holding <em>some</em> typed tags and many without —
+        describing that was started, and so describing that may have been lost.
       </p>
 
       <button
@@ -77,13 +81,20 @@ export function BareRecordsReport({ metadataLoc }: { metadataLoc: MountpointRef 
 
           {report.byFolder.length > 0 && (
             <div>
+              {/* Folders that hold some of each first. A folder of thousands
+                  with nothing typed anywhere is a folder nobody has described
+                  — not a loss — and putting those at the top made a normal
+                  photo library look like a catastrophe. */}
               <p className="text-zinc-500">
-                Where they are — the damage follows filing, so it clusters:
+                Per folder, typed against untyped. Folders holding some of each come first: those are
+                where describing was started, so those are where something may be missing. A folder with
+                none at all is one nobody has described, however large it is.
               </p>
-              <ul className="mt-1 flex max-h-32 flex-col gap-0.5 overflow-y-auto font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+              <ul className="mt-1 flex max-h-40 flex-col gap-0.5 overflow-y-auto font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
                 {report.byFolder.slice(0, 40).map((f) => (
-                  <li key={f.folder}>
-                    {f.count.toLocaleString()} — {f.folder}
+                  <li key={f.folder} className={f.described > 0 ? 'text-zinc-800 dark:text-zinc-200' : undefined}>
+                    {f.described > 0 ? `${f.described.toLocaleString()} typed, ` : ''}
+                    {f.bare.toLocaleString()} untyped — {f.folder}
                   </li>
                 ))}
               </ul>
