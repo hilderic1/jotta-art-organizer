@@ -18,9 +18,11 @@ import {
   saveArtworkChanges,
   loadMetadata,
   ensureCategoriesForTags,
+  settleArtwork,
   type ArtworkTags,
   type Category,
 } from '@/lib/metadata'
+import { DERIVED_CATEGORY_IDS } from '@/lib/bareRecords'
 
 export type RestorePlan = {
   /** Records read out of the files handed over. */
@@ -37,6 +39,10 @@ export type RestorePlan = {
   /** Records in the old files whose picture the catalogue has never heard of
    *  — restored whole, since nothing can be lost by adding them. */
   unknownPictures: number
+  /** Tags not offered back because the catalogue would discard them on sight
+   *  — a second-best date beside a real one. Counted so their absence from
+   *  the total is explained rather than noticed. */
+  discarded: number
   upsert: ArtworkTags[]
   categories: Category[]
   /** Files that couldn't be read as a shard. */
@@ -71,7 +77,14 @@ const EXAMPLE_LIMIT = 40
  */
 export async function planRestore(
   metadataLoc: MountpointRef,
-  files: { name: string; text: string }[]
+  files: { name: string; text: string }[],
+  opts?: {
+    /** Leave out the categories the app fills in from the file itself. Those
+     *  were never typed, so they were never lost — the app derives them again
+     *  whenever it reads a picture. Restoring 57,000 of them rewrites every
+     *  file in the catalogue to say what it already knows. */
+    typedOnly?: boolean
+  }
 ): Promise<RestorePlan> {
   const old: ArtworkTags[] = []
   const unreadable: string[] = []
@@ -101,6 +114,7 @@ export async function planRestore(
     byCategory: [],
     examples: [],
     unknownPictures: 0,
+    discarded: 0,
     upsert: [],
     categories: store.categories,
     unreadable,
@@ -131,8 +145,17 @@ export async function planRestore(
 
     for (const [id, values] of Object.entries(was.tags)) {
       if (values.length === 0) continue
+      if (opts?.typedOnly && DERIVED_CATEGORY_IDS.has(id)) continue
       const held = tags[id]
       if (held && held.length > 0) continue
+      // Would the catalogue keep it? A fallback date alongside a real one is
+      // deleted the moment the record is read, so offering it back is offering
+      // to rewrite a file to no effect.
+      const trial = settleArtwork({ ...now, tags: { ...tags, [id]: [...values] } })
+      if ((trial.tags[id]?.length ?? 0) === 0) {
+        plan.discarded++
+        continue
+      }
       tags[id] = [...values]
       restored++
       counts.set(id, (counts.get(id) ?? 0) + 1)

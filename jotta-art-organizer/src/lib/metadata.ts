@@ -214,6 +214,18 @@ const FREE_TEXT_CATEGORY_IDS = new Set(['derivedFrom'])
 const PREFERRED_DATE_IDS = ['photoTakenTime', 'editorCreated', 'fileChanged']
 const FALLBACK_DATE_IDS = ['dateAcquired', 'creationTime', 'jottaCreated']
 
+/**
+ * The rules the catalogue applies to a record on the way in and out —
+ * retired categories dropped, values tidied, and only the best date kept.
+ *
+ * Exported so a caller planning to write records can ask what would actually
+ * survive. A restore offering back a `creationTime` that this deletes on
+ * sight is offering nothing, at the cost of rewriting every file it touches.
+ */
+export function settleArtwork(artwork: ArtworkTags): ArtworkTags {
+  return cleanArtwork(artwork)
+}
+
 function cleanArtwork(artwork: ArtworkTags): ArtworkTags {
   const tags: Record<string, string[]> = {}
   for (const [categoryId, values] of Object.entries(artwork.tags ?? {})) {

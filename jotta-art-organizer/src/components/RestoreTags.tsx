@@ -33,6 +33,7 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [restored, setRestored] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [typedOnly, setTypedOnly] = useState(true)
   const [open, setOpen] = useState(false)
   const [before, setBefore] = useState(DAMAGE_BEGAN)
   const [history, setHistory] = useState<HistoryReport | null>(null)
@@ -55,7 +56,7 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
         return
       }
       setBusy(`Comparing ${held.records.toLocaleString()} held records against the catalogue…`)
-      setPlan(await planRestore(metadataLoc, held.files))
+      setPlan(await planRestore(metadataLoc, held.files, { typedOnly }))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not read this device’s copy.')
     } finally {
@@ -77,7 +78,7 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
       }
       setNames([legacy.name])
       setBusy('Comparing it against the catalogue…')
-      setPlan(await planRestore(metadataLoc, [legacy]))
+      setPlan(await planRestore(metadataLoc, [legacy], { typedOnly }))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not read it.')
     } finally {
@@ -104,7 +105,7 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
       setNames(found.files_.map((f) => f.name))
       if (found.files_.length > 0) {
         setBusy('Comparing against the catalogue…')
-        setPlan(await planRestore(metadataLoc, found.files_))
+        setPlan(await planRestore(metadataLoc, found.files_, { typedOnly }))
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not read the file history.')
@@ -125,7 +126,7 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
       )
       setNames(read.map((f) => f.name))
       setBusy('Comparing against the catalogue…')
-      setPlan(await planRestore(metadataLoc, read))
+      setPlan(await planRestore(metadataLoc, read, { typedOnly }))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not read those files.')
     } finally {
@@ -179,6 +180,28 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
           </li>
         </ol>
       )}
+
+      {/* On by default. The app fills in dates, cameras and program names from
+          the file every time it reads a picture, so those were never lost and
+          putting them back rewrites every file in the catalogue to say what it
+          already knows — which also pushes real history out of Jottacloud's
+          five-deep version list. */}
+      <label className="mt-2 flex w-fit items-start gap-2 text-xs">
+        <input
+          type="checkbox"
+          checked={typedOnly}
+          onChange={(e) => setTypedOnly(e.target.checked)}
+          className="mt-0.5 shrink-0"
+        />
+        <span>
+          Only what was typed by hand
+          <span className="block text-zinc-500">
+            Leaves out dates, cameras, dimensions and program names — the app reads those off the file
+            whenever it looks at a picture, so they were never lost. Off, a restore can be tens of
+            thousands of tags that change nothing.
+          </span>
+        </span>
+      </label>
 
       {/* First, and on every device, because this is the only source that
           gets worse while you think about it: loading the catalogue on a
@@ -325,6 +348,13 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
               {plan.byCategory
                 .map(({ category, count }) => `${category}: ${count.toLocaleString()}`)
                 .join(' · ')}
+            </p>
+          )}
+
+          {plan.discarded > 0 && (
+            <p className="text-zinc-500">
+              {plan.discarded.toLocaleString()} left out because the catalogue discards them on sight — a
+              second-best date beside a real one.
             </p>
           )}
 
