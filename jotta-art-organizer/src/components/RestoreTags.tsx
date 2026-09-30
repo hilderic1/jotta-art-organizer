@@ -351,11 +351,20 @@ export function RestoreTags({ metadataLoc }: { metadataLoc: MountpointRef }) {
             </p>
           )}
 
+          {/* Per category and in the store's own words: "retired" is a
+              decision someone made and nothing to chase, while "no longer in
+              that category's list" is a rename that could be followed up. */}
           {plan.discarded > 0 && (
-            <p className="text-zinc-500">
-              {plan.discarded.toLocaleString()} left out because the catalogue discards them on sight — a
-              second-best date beside a real one.
-            </p>
+            <div className="text-zinc-500">
+              <p>{plan.discarded.toLocaleString()} left out, because the catalogue wouldn&rsquo;t keep them:</p>
+              <ul className="mt-0.5 flex flex-col gap-0.5">
+                {plan.discardedWhy.map((d) => (
+                  <li key={d.category}>
+                    {d.category} ({d.count.toLocaleString()}) — {d.why}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           {plan.unknownPictures > 0 && (

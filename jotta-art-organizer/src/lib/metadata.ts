@@ -226,6 +226,34 @@ export function settleArtwork(artwork: ArtworkTags): ArtworkTags {
   return cleanArtwork(artwork)
 }
 
+/**
+ * Why the catalogue wouldn't keep a tag, in words, or null if it would.
+ *
+ * Lives here because the rules do. A caller that guesses at the reason tells
+ * people a tag was dropped for something that wasn't true of it — which is
+ * worse than not explaining at all, since a retired category is a decision
+ * someone made and a value no longer in a list is a rename to chase.
+ */
+export function explainDrop(
+  categoryId: string,
+  values: string[],
+  alongside: Record<string, string[]> = {}
+): string | null {
+  if (RETIRED_CATEGORY_IDS.has(categoryId)) {
+    return 'that category was retired — the app no longer keeps it'
+  }
+  if (cleanTagValues(categoryId, values).length === 0) {
+    return 'its values are no longer in that category’s list'
+  }
+  if (
+    FALLBACK_DATE_IDS.includes(categoryId) &&
+    PREFERRED_DATE_IDS.some((id) => (alongside[id]?.length ?? 0) > 0)
+  ) {
+    return 'a better date is already on the record'
+  }
+  return null
+}
+
 function cleanArtwork(artwork: ArtworkTags): ArtworkTags {
   const tags: Record<string, string[]> = {}
   for (const [categoryId, values] of Object.entries(artwork.tags ?? {})) {

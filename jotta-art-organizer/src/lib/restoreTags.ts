@@ -18,7 +18,7 @@ import {
   saveArtworkChanges,
   loadMetadata,
   ensureCategoriesForTags,
-  settleArtwork,
+  explainDrop,
   type ArtworkTags,
   type Category,
 } from '@/lib/metadata'
@@ -43,6 +43,8 @@ export type RestorePlan = {
    *  — a second-best date beside a real one. Counted so their absence from
    *  the total is explained rather than noticed. */
   discarded: number
+  /** Why, per category, said in the store's own words. */
+  discardedWhy: { category: string; count: number; why: string }[]
   upsert: ArtworkTags[]
   categories: Category[]
   /** Files that couldn't be read as a shard. */
@@ -115,11 +117,13 @@ export async function planRestore(
     examples: [],
     unknownPictures: 0,
     discarded: 0,
+    discardedWhy: [],
     upsert: [],
     categories: store.categories,
     unreadable,
   }
   const counts = new Map<string, number>()
+  const discardReasons = new Map<string, { count: number; why: string }>()
 
   for (const [md5, was] of byMd5) {
     const now = current.get(md5)
@@ -148,12 +152,17 @@ export async function planRestore(
       if (opts?.typedOnly && DERIVED_CATEGORY_IDS.has(id)) continue
       const held = tags[id]
       if (held && held.length > 0) continue
-      // Would the catalogue keep it? A fallback date alongside a real one is
-      // deleted the moment the record is read, so offering it back is offering
-      // to rewrite a file to no effect.
-      const trial = settleArtwork({ ...now, tags: { ...tags, [id]: [...values] } })
-      if ((trial.tags[id]?.length ?? 0) === 0) {
+      // Would the catalogue keep it? A retired category, a value no longer in
+      // its list, or a second-best date beside a real one is deleted the
+      // moment the record is read, so offering it back is offering to rewrite
+      // a file to no effect. The reason comes from the store rather than being
+      // guessed at here.
+      const why = explainDrop(id, values, tags)
+      if (why) {
         plan.discarded++
+        const held = discardReasons.get(id) ?? { count: 0, why }
+        held.count++
+        discardReasons.set(id, held)
         continue
       }
       tags[id] = [...values]
@@ -171,6 +180,9 @@ export async function planRestore(
     }
   }
 
+  plan.discardedWhy = [...discardReasons.entries()]
+    .map(([category, held]) => ({ category, count: held.count, why: held.why }))
+    .sort((a, b) => b.count - a.count)
   plan.byCategory = [...counts.entries()]
     .map(([category, count]) => ({ category, count }))
     .sort((a, b) => b.count - a.count)
