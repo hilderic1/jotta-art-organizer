@@ -8,6 +8,7 @@ import {
   rememberLocation,
   type CatalogueCandidate,
 } from '@/lib/catalogueLocation'
+import { planCatalogueMerge, applyMerge, type MergePlan } from '@/lib/mergeCatalogues'
 
 function size(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -35,6 +36,11 @@ export function CatalogueLocation({
   const [showAll, setShowAll] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // The plan carries which catalogue it came from, so the summary can name it
+  // without the two going out of step.
+  const [plan, setPlan] = useState<(MergePlan & { from: MountpointRef }) | null>(null)
+  const [merging, setMerging] = useState<string | null>(null)
+  const [merged, setMerged] = useState<number | null>(null)
 
   const search = useCallback(async () => {
     setSearching(true)
@@ -66,6 +72,34 @@ export function CatalogueLocation({
       ignore = true
     }
   }, [current])
+
+  async function preview(from: MountpointRef) {
+    if (!current) return
+    const key = `${from.device}/${from.mountpoint}`
+    setMerging(key)
+    setError(null)
+    setMerged(null)
+    try {
+      setPlan({ ...(await planCatalogueMerge(current, from)), from })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read both catalogues.')
+    } finally {
+      setMerging(null)
+    }
+  }
+
+  async function doMerge() {
+    if (!current || !plan) return
+    setMerging('apply')
+    setError(null)
+    try {
+      setMerged(await applyMerge(current, plan))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not write the merge.')
+    } finally {
+      setMerging(null)
+    }
+  }
 
   async function choose(loc: MountpointRef) {
     const key = `${loc.device}/${loc.mountpoint}`
@@ -137,11 +171,93 @@ export function CatalogueLocation({
               answering this question wrongly once, and the counts are what
               tell them apart. */}
           {real.length > 1 && (
-            <p className="text-amber-700 dark:text-amber-500">
-              There are {real.length} catalogues in this account. The one with the most in it is almost
-              certainly the real one; a small one is what gets started by picking the wrong mountpoint
-              once. Nothing here removes either — picking one only changes which is read.
-            </p>
+            <div className="rounded border border-amber-300 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950">
+              <p className="text-amber-800 dark:text-amber-300">
+                There are {real.length} catalogues in this account. The one with the most in it is almost
+                certainly the real one; a small one is what gets started by picking the wrong mountpoint
+                once. Nothing here removes either — picking one only changes which is read.
+              </p>
+              {/* Both hold real work, so the answer isn't to choose one and
+                  abandon the other. Records are keyed by content hash, which
+                  is why they can be folded together at all. */}
+              {current && (
+                <div className="mt-2 flex flex-col gap-1">
+                  <p className="text-zinc-600 dark:text-zinc-400">
+                    They can be folded together — into {currentKey}, the one in use:
+                  </p>
+                  {real
+                    .filter((c) => `${c.loc.device}/${c.loc.mountpoint}` !== currentKey)
+                    .map((c) => {
+                      const key = `${c.loc.device}/${c.loc.mountpoint}`
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => void preview(c.loc)}
+                          disabled={merging !== null}
+                          className="self-start text-indigo-600 hover:underline disabled:opacity-50 dark:text-indigo-400"
+                        >
+                          {merging === key ? 'Reading both…' : `Show what merging ${key} in would do`}
+                        </button>
+                      )
+                    })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {plan && (
+            <div className="rounded border border-zinc-300 p-2 dark:border-zinc-700">
+              <p>
+                Merging <strong>{plan.from.device}/{plan.from.mountpoint}</strong> into{' '}
+                <strong>{currentKey}</strong> would add{' '}
+                <strong>{plan.added.toLocaleString()}</strong> picture
+                {plan.added === 1 ? '' : 's'} this catalogue has never heard of, and add tags to{' '}
+                <strong>{plan.enriched.toLocaleString()}</strong> it already knows.{' '}
+                {plan.untouched.toLocaleString()} would be left alone.
+              </p>
+              {(plan.newCategories.length > 0 || plan.newValues > 0) && (
+                <p className="mt-1 text-zinc-500">
+                  {plan.newCategories.length > 0 &&
+                    `New categories: ${plan.newCategories.join(', ')}. `}
+                  {plan.newValues > 0 && `${plan.newValues} new values in categories you already have.`}
+                </p>
+              )}
+              {plan.conflicts.length > 0 && (
+                <div className="mt-1 text-amber-700 dark:text-amber-500">
+                  <p>
+                    {plan.conflicts.length.toLocaleString()} picture
+                    {plan.conflicts.length === 1 ? ' has' : 's have'} a different title or note in each.
+                    This catalogue&rsquo;s is kept — two titles would be a broken record rather than a
+                    richer one — and the other is listed here so nothing goes quietly:
+                  </p>
+                  <ul className="mt-1 flex max-h-32 flex-col gap-0.5 overflow-y-auto font-mono text-[11px]">
+                    {plan.conflicts.slice(0, 50).map((c, i) => (
+                      <li key={`${c.md5}/${c.category}/${i}`}>
+                        {c.category}: keeping “{c.kept}”, not taking “{c.discarded}”
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {merged === null ? (
+                <button
+                  onClick={() => void doMerge()}
+                  disabled={merging !== null || plan.upsert.length === 0}
+                  className="mt-2 rounded bg-indigo-600 px-2 py-1 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+                >
+                  {merging === 'apply'
+                    ? 'Merging…'
+                    : plan.upsert.length === 0
+                      ? 'Nothing to merge'
+                      : `Merge ${plan.upsert.length.toLocaleString()} records in`}
+                </button>
+              ) : (
+                <p className="mt-2 text-emerald-700 dark:text-emerald-400">
+                  {merged.toLocaleString()} records merged in. The other catalogue is untouched — nothing
+                  was removed from it.
+                </p>
+              )}
+            </div>
           )}
           {real.length === 0 && (
             <p className="text-zinc-500">
