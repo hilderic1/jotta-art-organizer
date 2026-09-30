@@ -705,7 +705,13 @@ function parentOf(relPath: string): string {
 export async function findLeftovers(
   metadataLoc: MountpointRef,
   config: IntakeConfig,
-  opts?: { signal?: AbortSignal }
+  opts?: {
+    signal?: AbortSignal
+    /** Which folder it is in and how many it has read. A walk of an archive
+     *  is minutes long, and a message that never changes is
+     *  indistinguishable from being stuck. */
+    onProgress?: (folders: number, where: string) => void
+  }
 ): Promise<Leftovers> {
   const sources = intakeSources(config)
   // The artwork folder is walked for empty folders too, but is not a source:
@@ -721,6 +727,7 @@ export async function findLeftovers(
   // broken after its retries shouldn't throw away the other thirty thousand.
   // It is counted instead, and counted failures stop anything being removed.
   const unreadable: string[] = []
+  let walked = 0
   const [walks, examined] = await Promise.all([
     Promise.all(
       scanned.map(async ({ folder, isSource }) => ({
@@ -728,6 +735,7 @@ export async function findLeftovers(
         isSource,
         walk: await walkTree(locOf(folder), folder.path, {
           signal: opts?.signal,
+          onFolder: () => opts?.onProgress?.(++walked, folderLabel(folder)),
           onFolderError: (path) => unreadable.push(path),
         }),
       }))

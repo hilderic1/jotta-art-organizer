@@ -51,6 +51,7 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
   const [showRuns, setShowRuns] = useState(false)
   const [leftovers, setLeftovers] = useState<Leftovers | null>(null)
   const [checking, setChecking] = useState(false)
+  const [where, setWhere] = useState<{ folders: number; folder: string } | null>(null)
   const [confirmingFolders, setConfirmingFolders] = useState(false)
   // Held while being typed in, so a half-typed name isn't saved a letter at
   // a time. Null means "whatever is stored".
@@ -101,12 +102,18 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
     setChecking(true)
     setError(null)
     setConfirmingFolders(false)
+    setWhere(null)
     try {
-      setLeftovers(await findLeftovers(metadataLoc, config))
+      setLeftovers(
+        await findLeftovers(metadataLoc, config, {
+          onProgress: (folders, folder) => setWhere({ folders, folder }),
+        })
+      )
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not go through the photo folder.')
+      setError(err instanceof Error ? err.message : 'Could not go through those folders.')
     } finally {
       setChecking(false)
+      setWhere(null)
     }
   }
 
@@ -417,7 +424,14 @@ export function IntakeSettings({ metadataLoc }: { metadataLoc: MountpointRef }) 
               disabled={checking}
               className="mt-1 text-indigo-600 hover:underline disabled:opacity-50 dark:text-indigo-400"
             >
-              {checking ? 'Going through the photo folder…' : 'Check what has been left behind'}
+              {/* Named, and counting: this walks every source and the artwork
+                  folder, which on an archive is minutes. "Going through the
+                  photo folder…" was both wrong and motionless. */}
+              {checking
+                ? where
+                  ? `Reading ${where.folder} — ${where.folders.toLocaleString()} folders so far`
+                  : 'Starting…'
+                : 'Check what has been left behind'}
             </button>
           ) : (
             (() => {
