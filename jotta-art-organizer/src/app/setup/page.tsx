@@ -14,6 +14,7 @@ import { resolveCatalogueLocation } from '@/lib/catalogueLocation'
 import { FolderBrowser } from '@/components/FolderBrowser'
 import { IntakeSettings } from '@/components/IntakeSettings'
 import { CatalogueLocation } from '@/components/CatalogueLocation'
+import { RestoreTags } from '@/components/RestoreTags'
 
 export default function SetupPage() {
   const router = useRouter()
@@ -87,6 +88,10 @@ export default function SetupPage() {
             setStatus((prev) => (prev?.authenticated ? { ...prev, metadataLocation: loc } : prev))
           }
         />
+
+        {/* Directly under the catalogue location, because both are about the
+            catalogue itself rather than about filing. */}
+        {status.metadataLocation && <RestoreTags metadataLoc={status.metadataLocation} />}
 
         {status.metadataLocation && <IntakeSettings metadataLoc={status.metadataLocation} />}
 
