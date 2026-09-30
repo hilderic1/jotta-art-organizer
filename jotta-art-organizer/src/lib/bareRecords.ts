@@ -73,6 +73,14 @@ export type BareRecord = {
   derived: string
 }
 
+export type DescribedRecord = {
+  md5: string
+  path: string
+  /** Only what was typed. The derived tags are on every record and say
+   *  nothing about which pictures someone has worked on. */
+  typed: string
+}
+
 export type BareReport = {
   total: number
   /** Records carrying something a person typed. */
@@ -94,9 +102,21 @@ export type BareReport = {
    */
   byFolder: { folder: string; bare: number; described: number }[]
   examples: BareRecord[]
+  /**
+   * Every picture carrying something typed, with what it says.
+   *
+   * The short list is the interesting one. Tens of thousands of untyped
+   * records are an ordinary photo library; the few dozen someone has actually
+   * worked on are what a person wants to look at, and burying them under a
+   * folder-by-folder tally of the rest got that exactly backwards.
+   */
+  describedRecords: DescribedRecord[]
 }
 
 const EXAMPLE_LIMIT = 200
+/** Generous, because this is the list worth having in full: a library with
+ *  more described pictures than this has nothing to recover. */
+const DESCRIBED_LIMIT = 2000
 
 function folderOf(path: string): string {
   const cut = path.lastIndexOf('/')
@@ -122,6 +142,7 @@ export async function findBareRecords(metadataLoc: MountpointRef): Promise<BareR
     typedCategories: [],
     byFolder: [],
     examples: [],
+    describedRecords: [],
   }
 
   const perCategory = new Map<string, number>()
@@ -139,6 +160,15 @@ export async function findBareRecords(metadataLoc: MountpointRef): Promise<BareR
       report.described++
       tally(folder).described++
       for (const id of typed) perCategory.set(id, (perCategory.get(id) ?? 0) + 1)
+      if (report.describedRecords.length < DESCRIBED_LIMIT) {
+        report.describedRecords.push({
+          md5: record.md5,
+          path: record.path ?? '',
+          typed: typed
+            .map((id) => `${nameOf(store.categories, id)}: ${record.tags[id].join(', ')}`)
+            .join(' · '),
+        })
+      }
       continue
     }
 

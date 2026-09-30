@@ -19,6 +19,7 @@ export function BareRecordsReport({ metadataLoc }: { metadataLoc: MountpointRef 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showList, setShowList] = useState(false)
+  const [showRest, setShowRest] = useState(false)
 
   async function run() {
     setBusy(true)
@@ -79,7 +80,38 @@ export function BareRecordsReport({ metadataLoc }: { metadataLoc: MountpointRef 
             </p>
           )}
 
-          {report.byFolder.length > 0 && (
+          {/* The short list, in full and without being asked for. Everything
+              else here is a tally of an ordinary photo library, and it was
+              burying the few dozen pictures actually worked on. */}
+          {report.describedRecords.length > 0 && (
+            <div>
+              <p className="text-zinc-500">
+                The {report.describedRecords.length.toLocaleString()} with something typed:
+              </p>
+              <ul className="mt-1 flex max-h-96 flex-col gap-0.5 overflow-y-auto text-[11px]">
+                {report.describedRecords.map((r) => (
+                  <li key={r.md5} className="border-b border-zinc-100 py-0.5 dark:border-zinc-900">
+                    <span className="font-mono text-zinc-800 dark:text-zinc-200">
+                      {r.path.split('/').pop() || r.md5}
+                    </span>
+                    <span className="block text-zinc-600 dark:text-zinc-400">{r.typed}</span>
+                    <span className="block font-mono text-zinc-400">
+                      {r.path.slice(0, r.path.lastIndexOf('/')) || '(no folder recorded)'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <button
+            onClick={() => setShowRest((v) => !v)}
+            className="self-start text-zinc-500 hover:underline"
+          >
+            {showRest ? 'Hide the rest' : 'Show the folder tally and the untyped ones'}
+          </button>
+
+          {showRest && report.byFolder.length > 0 && (
             <div>
               {/* Folders that hold some of each first. A folder of thousands
                   with nothing typed anywhere is a folder nobody has described
@@ -101,7 +133,7 @@ export function BareRecordsReport({ metadataLoc }: { metadataLoc: MountpointRef 
             </div>
           )}
 
-          {report.examples.length > 0 && (
+          {showRest && report.examples.length > 0 && (
             <>
               <button
                 onClick={() => setShowList((v) => !v)}
