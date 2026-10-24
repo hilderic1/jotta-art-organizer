@@ -110,6 +110,32 @@ export function toolsVisible(config: ModeConfig | null): boolean {
   return (config?.mode ?? 'general') === 'general'
 }
 
+/**
+ * The mode and the folder it works in, settled in one place.
+ *
+ * Every screen that would otherwise ask "which folder?" asks this instead, so
+ * they cannot disagree about the answer — the Catalogue opening in one folder
+ * while Import offers another is worse than both asking.
+ *
+ * PicsArt with no folder of its own falls back to where filing puts her work,
+ * since that is the same folder under another name. Photos has no such
+ * stand-in: nothing else in the app knows where the photographs are.
+ */
+export async function resolveModeFolder(
+  metadataLoc: MountpointRef,
+  /** Passed in rather than imported, to keep this module free of the filing
+   *  config and the import cycle that would come with it. */
+  intakeDestination?: () => Promise<FolderRef | null>
+): Promise<{ config: ModeConfig; folder: FolderRef | null }> {
+  const config = await loadModeConfig(metadataLoc)
+  const chosen = folderForMode(config)
+  if (chosen) return { config, folder: chosen }
+  if (config.mode === 'artwork' && intakeDestination) {
+    return { config, folder: (await intakeDestination().catch(() => null)) ?? null }
+  }
+  return { config, folder: null }
+}
+
 export async function loadModeConfig(metadataLoc: MountpointRef): Promise<ModeConfig> {
   const stored = await readJsonFile<ModeConfig>(metadataLoc, `${MODE_FOLDER}/${MODE_FILENAME}`)
   return stored?.mode ? stored : { mode: 'general' }

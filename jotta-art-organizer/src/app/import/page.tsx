@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { FolderBrowser } from '@/components/FolderBrowser'
 import { uploadFile, getSessionStatus, type SessionStatus, type MountpointRef } from '@/lib/api'
 import { describeArrivedFiles } from '@/lib/autoDescribe'
+import { modeFolder } from '@/lib/modeFolder'
 import { hashFileMd5 } from '@/lib/md5'
 
 type QueueItem = {
@@ -32,7 +33,17 @@ export default function ImportPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    getSessionStatus().then(setSession)
+    getSessionStatus().then(async (loaded) => {
+      setSession(loaded)
+      // A mode knows where its job's pictures go, so it goes there instead of
+      // opening on a folder picker. The picker is still one click away.
+      if (!loaded.authenticated || !loaded.metadataLocation) return
+      const { folder } = await modeFolder(loaded.metadataLocation).catch(() => ({ folder: null }))
+      if (folder) {
+        setDestination({ loc: { device: folder.device, mountpoint: folder.mountpoint }, path: folder.path })
+        setPickingFolder(false)
+      }
+    })
   }, [])
 
   function addFiles(files: FileList | null) {

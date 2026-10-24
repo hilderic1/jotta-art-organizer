@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { resolveCatalogueLocation, rememberLocation } from '@/lib/catalogueLocation'
-import { loadModeConfig, folderForMode, shownInMode, type ModeConfig } from '@/lib/mode'
-import { loadIntakeConfig } from '@/lib/photoIntake'
+import { shownInMode, type ModeConfig } from '@/lib/mode'
+import { modeFolder } from '@/lib/modeFolder'
 import { getSessionStatus, setMetadataLocation, type SessionStatus, type MountpointRef, type JottaEntry } from '@/lib/api'
 import { loadMetadataForFolder, saveArtworkChanges, ensureCategoriesForTags, type MetadataStore, type Category, type ArtworkTags } from '@/lib/metadata'
 import { LocationPicker } from '@/components/LocationPicker'
@@ -50,18 +50,9 @@ export default function CataloguePage() {
       // asked to choose a folder every time is the sort of question a mode
       // exists to stop asking.
       if (session.authenticated && session.metadataLocation) {
-        const config = await loadModeConfig(session.metadataLocation).catch(() => null)
-        setModeConfig(config)
-        let folder = config ? folderForMode(config) : null
-        // PicsArt mode with no folder of its own falls back to where filing
-        // puts her work, which is the same folder by another name — so the
-        // mode is useful the moment it is chosen rather than after a second
-        // setting is found and filled in.
-        if (!folder && config?.mode === 'artwork') {
-          const intake = await loadIntakeConfig(session.metadataLocation).catch(() => null)
-          folder = intake?.dest ?? null
-        }
-        if (folder) setSelectedBrowseLocation(folder)
+        const resolvedMode = await modeFolder(session.metadataLocation).catch(() => null)
+        setModeConfig(resolvedMode?.config ?? null)
+        if (resolvedMode?.folder) setSelectedBrowseLocation(resolvedMode.folder)
       }
     })
   }, [])

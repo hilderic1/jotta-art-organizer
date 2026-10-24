@@ -17,6 +17,7 @@ import {
   type JottaFolderListing,
 } from '@/lib/api'
 import { describeArrivedFiles, type AutoDescribeResult } from '@/lib/autoDescribe'
+import { modeFolder } from '@/lib/modeFolder'
 
 type Location = { loc: MountpointRef; path: string }
 
@@ -93,7 +94,19 @@ export default function CopyPage() {
   const [describing, setDescribing] = useState<{ done: number; total: number } | null>(null)
 
   useEffect(() => {
-    getSessionStatus().then(setSession)
+    getSessionStatus().then(async (loaded) => {
+      setSession(loaded)
+      // The destination only: where a copy comes *from* is the question this
+      // page exists to ask, and a mode has no business answering it.
+      if (!loaded.authenticated || !loaded.metadataLocation) return
+      const { folder } = await modeFolder(loaded.metadataLocation).catch(() => ({ folder: null }))
+      if (folder) {
+        setDestination({
+          loc: { device: folder.device, mountpoint: folder.mountpoint },
+          path: folder.path,
+        })
+      }
+    })
   }, [])
 
   const sourceKey = source ? `${source.loc.device}/${source.loc.mountpoint}/${source.path}` : null
