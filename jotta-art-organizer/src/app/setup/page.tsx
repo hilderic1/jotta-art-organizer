@@ -16,10 +16,15 @@ import { IntakeSettings } from '@/components/IntakeSettings'
 import { CatalogueLocation } from '@/components/CatalogueLocation'
 import { RestoreTags } from '@/components/RestoreTags'
 import { BareRecordsReport } from '@/components/BareRecordsReport'
+import { ModeSettings } from '@/components/ModeSettings'
+import { toolsVisible, type ModeConfig } from '@/lib/mode'
 
 export default function SetupPage() {
   const router = useRouter()
   const [status, setStatus] = useState<SessionStatus | null>(null)
+  // Held here so switching mode rearranges this page at once. Null means not
+  // read yet, which shows everything — the state the app had before modes.
+  const [mode, setMode] = useState<ModeConfig | null>(null)
   const [token, setToken] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -61,6 +66,8 @@ export default function SetupPage() {
   // Account details and the archive browser used to live on the home page,
   // which now goes straight to Tags. They belong here, alongside connecting
   // and disconnecting, rather than on a landing page nobody stops at.
+  const showTools = mode === null || toolsVisible(mode)
+
   if (status?.authenticated) {
     return (
       <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
@@ -90,18 +97,26 @@ export default function SetupPage() {
           }
         />
 
-        {/* Directly under the catalogue location, because both are about the
-            catalogue itself rather than about filing. */}
-        {status.metadataLocation && <RestoreTags metadataLoc={status.metadataLocation} />}
-
-        {/* After recovery rather than before it: the number only means
-            something once every source has been taken from. */}
-        {status.metadataLocation && <BareRecordsReport metadataLoc={status.metadataLocation} />}
+        {/* Before everything it governs. */}
+        {status.metadataLocation && (
+          <ModeSettings metadataLoc={status.metadataLocation} onChange={setMode} />
+        )}
 
         {status.metadataLocation && <IntakeSettings metadataLoc={status.metadataLocation} />}
 
+        {/* The one-off repairs and the instruments. Kept for General; in a
+            focused mode they stay reachable by address and out of the way. */}
+        {showTools && status.metadataLocation && <RestoreTags metadataLoc={status.metadataLocation} />}
+
+        {/* After recovery rather than before it: the number only means
+            something once every source has been taken from. */}
+        {showTools && status.metadataLocation && (
+          <BareRecordsReport metadataLoc={status.metadataLocation} />
+        )}
+
         {/* A one-off check rather than a place you work, so it's linked from
             here instead of taking a slot in the nav. */}
+        {showTools && (
         <section className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
           <h2 className="text-sm font-medium">Deleting from Google Photos?</h2>
           <p className="mt-1 text-xs text-zinc-500">
@@ -111,10 +126,12 @@ export default function SetupPage() {
             Check the export →
           </Link>
         </section>
+        )}
 
         {/* Here rather than in the nav: none of it is part of using the app,
             and a permanent "to do" for jobs that mostly don't apply is a
             standing reproach for nothing. */}
+        {showTools && (
         <section className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
           <h2 className="text-sm font-medium">Sorting out a library</h2>
           <p className="mt-1 text-xs text-zinc-500">
@@ -126,11 +143,18 @@ export default function SetupPage() {
             Jobs, and when they apply →
           </Link>
         </section>
+        )}
 
-        <section>
-          <h2 className="mb-2 text-sm font-medium text-zinc-600 dark:text-zinc-400">Browse your Archive</h2>
-          <FolderBrowser />
-        </section>
+        {/* An instrument too: browsing the raw archive is for finding out
+            where something is, not for doing the day's work. */}
+        {showTools && (
+          <section>
+            <h2 className="mb-2 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              Browse your Archive
+            </h2>
+            <FolderBrowser />
+          </section>
+        )}
       </div>
     )
   }

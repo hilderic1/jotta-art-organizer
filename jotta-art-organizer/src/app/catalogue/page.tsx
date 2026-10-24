@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { resolveCatalogueLocation, rememberLocation } from '@/lib/catalogueLocation'
+import { loadModeConfig, folderForMode, shownInMode, type ModeConfig } from '@/lib/mode'
+import { loadIntakeConfig } from '@/lib/photoIntake'
 import { getSessionStatus, setMetadataLocation, type SessionStatus, type MountpointRef, type JottaEntry } from '@/lib/api'
 import { loadMetadataForFolder, saveArtworkChanges, ensureCategoriesForTags, type MetadataStore, type Category, type ArtworkTags } from '@/lib/metadata'
 import { LocationPicker } from '@/components/LocationPicker'
@@ -24,6 +26,7 @@ export default function CataloguePage() {
   const [mode, setMode] = useState<Mode>('assign')
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(false)
   const [selectedBrowseLocation, setSelectedBrowseLocation] = useState<(MountpointRef & { path?: string }) | null>(null)
+  const [modeConfig, setModeConfig] = useState<ModeConfig | null>(null)
   // Bumped to run the load effect again on the same folder — the folder
   // itself hasn't changed, so nothing else in its dependencies would.
   const [reloadNonce, setReloadNonce] = useState(0)
@@ -33,15 +36,33 @@ export default function CataloguePage() {
       // Worked out from the account rather than asked for again: being asked
       // again after a reconnect is how a second, empty catalogue gets
       // started in the wrong mountpoint.
+      let session = loaded
       if (loaded.authenticated && !loaded.metadataLocation) {
         const resolved = await resolveCatalogueLocation().catch(() => null)
         if (resolved?.loc) {
           await setMetadataLocation(resolved.loc).catch(() => null)
-          setSession({ ...loaded, metadataLocation: resolved.loc })
-          return
+          session = { ...loaded, metadataLocation: resolved.loc }
         }
       }
-      setSession(loaded)
+      setSession(session)
+
+      // A mode knows which folder its job lives in, so it opens there. Being
+      // asked to choose a folder every time is the sort of question a mode
+      // exists to stop asking.
+      if (session.authenticated && session.metadataLocation) {
+        const config = await loadModeConfig(session.metadataLocation).catch(() => null)
+        setModeConfig(config)
+        let folder = config ? folderForMode(config) : null
+        // PicsArt mode with no folder of its own falls back to where filing
+        // puts her work, which is the same folder by another name — so the
+        // mode is useful the moment it is chosen rather than after a second
+        // setting is found and filled in.
+        if (!folder && config?.mode === 'artwork') {
+          const intake = await loadIntakeConfig(session.metadataLocation).catch(() => null)
+          folder = intake?.dest ?? null
+        }
+        if (folder) setSelectedBrowseLocation(folder)
+      }
     })
   }, [])
 
@@ -89,10 +110,17 @@ export default function CataloguePage() {
 
   async function handleCategoriesChange(nextCategories: Category[]) {
     if (!store || !session?.authenticated || !session.metadataLocation) return
-    setStore({ ...store, categories: nextCategories })
+    // The manager is handed only this mode's categories, and the whole list
+    // is written on save — so the other job's categories have to be put back
+    // or a mode would delete them by being used. Order follows the editor for
+    // what it saw, with the unseen ones kept where they were.
+    const seen = new Set(nextCategories.map((c) => c.id))
+    const unseen = store.categories.filter((c) => !seen.has(c.id) && !shownInMode(c.id, modeConfig))
+    const merged = [...nextCategories, ...unseen]
+    setStore({ ...store, categories: merged })
     setSaveError(null)
     try {
-      await saveArtworkChanges(session.metadataLocation, nextCategories)
+      await saveArtworkChanges(session.metadataLocation, merged)
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save categories.')
     }
@@ -291,7 +319,11 @@ export default function CataloguePage() {
       for (const value of values) used.add(value)
     }
   }
-  const filteredCategories = store.categories
+  // What this job uses. In General nothing is dropped; in a focused mode the
+  // other job's characteristics go, because a Figures count on a holiday
+  // photograph and a People list on a drawing are both noise.
+  const modeCategories = store.categories.filter((cat) => shownInMode(cat.id, modeConfig))
+  const filteredCategories = modeCategories
     .map((cat) => ({ ...cat, values: cat.values.filter((v) => usedByCategory.get(cat.id)?.has(v)) }))
     .filter((cat) => cat.values.length > 0)
 
@@ -341,14 +373,14 @@ export default function CataloguePage() {
         </div>
       )}
 
-      {mode === 'categories' && <CategoryManager categories={store.categories} onChange={handleCategoriesChange} />}
+      {mode === 'categories' && <CategoryManager categories={modeCategories} onChange={handleCategoriesChange} />}
 
       {/* Assign gets every category, not just the ones already in use here —
           otherwise a folder with nothing tagged yet shows no categories at
           all and there's no way to apply a first tag. */}
       {mode === 'assign' && (
         <TagAssignBrowser
-          categories={store.categories}
+          categories={modeCategories}
           artworks={store.artworks}
           onSave={handleSaveTags}
           initialLocation={selectedBrowseLocation}

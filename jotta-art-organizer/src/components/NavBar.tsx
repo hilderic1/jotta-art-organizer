@@ -2,6 +2,9 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { getSessionStatus } from '@/lib/api'
+import { loadModeConfig, toolsVisible } from '@/lib/mode'
 
 const LINKS = [
   { href: '/import', label: 'Import' },
@@ -14,8 +17,35 @@ const LINKS = [
   { href: '/setup', label: 'Setup' },
 ]
 
+/** What a focused mode keeps. Everything else is an instrument for looking
+ *  into the account or tidying it up — still reachable by address, just not
+ *  in the way of someone who opened the app to title a picture. */
+const KEPT_IN_FOCUSED_MODES = new Set(['/import', '/copy', '/catalogue', '/setup'])
+
 export function NavBar() {
   const pathname = usePathname()
+  // Null until known, and everything is shown meanwhile: links appearing a
+  // moment late is better than links vanishing a moment late.
+  const [showTools, setShowTools] = useState(true)
+
+  useEffect(() => {
+    let ignore = false
+    getSessionStatus()
+      .then(async (session) => {
+        if (!session.authenticated || !session.metadataLocation) return
+        const config = await loadModeConfig(session.metadataLocation)
+        if (!ignore) setShowTools(toolsVisible(config))
+      })
+      .catch(() => {
+        // The mode is a convenience; failing to read it shows everything,
+        // which is the state the app had before modes existed.
+      })
+    return () => {
+      ignore = true
+    }
+  }, [pathname])
+
+  const links = showTools ? LINKS : LINKS.filter((l) => KEPT_IN_FOCUSED_MODES.has(l.href))
 
   return (
     <nav className="sticky top-0 z-10 flex items-center gap-4 border-b border-zinc-200 bg-white/90 px-4 pb-2 backdrop-blur dark:border-zinc-800 dark:bg-black/90 [padding-top:max(0.5rem,env(safe-area-inset-top))]">
@@ -29,7 +59,7 @@ export function NavBar() {
         {/* Marks where you are — six links with none of them highlighted left
             the question answerable only by reading the page. Matched on the
             prefix so a deeper route stays under its own section. */}
-        {LINKS.map((link) => {
+        {links.map((link) => {
           const active = pathname === link.href || pathname.startsWith(`${link.href}/`)
           return (
             <Link
