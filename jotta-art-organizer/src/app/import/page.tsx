@@ -6,6 +6,7 @@ import { FolderBrowser } from '@/components/FolderBrowser'
 import { uploadFile, getSessionStatus, type SessionStatus, type MountpointRef } from '@/lib/api'
 import { describeArrivedFiles } from '@/lib/autoDescribe'
 import { modeFolder } from '@/lib/modeFolder'
+import { MODE_NAMES, type ModeConfig } from '@/lib/mode'
 import { hashFileMd5 } from '@/lib/md5'
 
 type QueueItem = {
@@ -26,6 +27,7 @@ export default function ImportPage() {
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [dragOver, setDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [modeConfig, setModeConfig] = useState<ModeConfig | null>(null)
   const [describing, setDescribing] = useState<{ done: number; total: number } | null>(null)
   const [described, setDescribed] = useState(0)
   const [deduping, setDeduping] = useState(false)
@@ -38,7 +40,9 @@ export default function ImportPage() {
       // A mode knows where its job's pictures go, so it goes there instead of
       // opening on a folder picker. The picker is still one click away.
       if (!loaded.authenticated || !loaded.metadataLocation) return
-      const { folder } = await modeFolder(loaded.metadataLocation).catch(() => ({ folder: null }))
+      const resolved = await modeFolder(loaded.metadataLocation).catch(() => null)
+      setModeConfig(resolved?.config ?? null)
+      const folder = resolved?.folder ?? null
       if (folder) {
         setDestination({ loc: { device: folder.device, mountpoint: folder.mountpoint }, path: folder.path })
         setPickingFolder(false)
@@ -186,6 +190,25 @@ export default function ImportPage() {
           1. Destination folder
           {destination !== null && ` — ${destination.loc.mountpoint}${destination.path ? `/${destination.path}` : ''}`}
         </h2>
+        {/* Says whether the mode answered this, because "it still asks me"
+            is otherwise impossible to tell apart from a stale page: a mode
+            with no folder set looks exactly like a mode that isn't on. */}
+        {modeConfig && modeConfig.mode !== 'general' && (
+          <p className="mb-2 text-xs text-zinc-500">
+            {destination !== null ? (
+              <>Chosen by {MODE_NAMES[modeConfig.mode]} mode.</>
+            ) : (
+              <>
+                {MODE_NAMES[modeConfig.mode]} mode has no folder set, so it can&rsquo;t answer this. Set
+                one in{' '}
+                <Link href="/setup" className="text-indigo-600 hover:underline dark:text-indigo-400">
+                  Setup → What this app is for
+                </Link>
+                .
+              </>
+            )}
+          </p>
+        )}
         {pickingFolder ? (
           <FolderBrowser
             onSelect={(loc, path) => {
