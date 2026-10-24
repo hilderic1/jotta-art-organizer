@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration";
 import { NavBar } from "@/components/NavBar";
+import { NewBuildNotice } from "@/components/NewBuildNotice";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -43,6 +44,9 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ServiceWorkerRegistration />
+        {/* Above the nav: it is about the page itself rather than about
+            anything in it. */}
+        <NewBuildNotice />
         <NavBar />
         {children}
       </body>
