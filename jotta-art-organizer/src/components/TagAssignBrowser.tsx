@@ -162,11 +162,16 @@ export function TagAssignBrowser({
   artworks,
   onSave,
   initialLocation,
+  lockedTo,
 }: {
   categories: Category[]
   artworks: ArtworkTags[]
   onSave: (entry: JottaEntry, loc: MountpointRef, tags: Record<string, string[]>) => Promise<void>
   initialLocation?: (MountpointRef & { path?: string }) | null
+  /** The folder a mode has settled on. Given, the trail starts there and
+   *  there is no way above it — the mode has already answered which pictures
+   *  this is about. */
+  lockedTo?: string | null
 }) {
   const [location, setLocation] = useState<MountpointRef | null>(initialLocation ? { device: initialLocation.device, mountpoint: initialLocation.mountpoint } : null)
   const [path, setPath] = useState(initialLocation?.path ?? '')
@@ -719,7 +724,14 @@ export function TagAssignBrowser({
     spansFolders,
   ])
 
-  const crumbs = segments(path)
+  // With a mode in force the folder is settled, so the trail starts there:
+  // offering a way up to Locations invites wandering out of the job the mode
+  // was chosen for, and then wondering why the wrong pictures are listed.
+  const root = lockedTo ?? ''
+  const below = root && path.startsWith(root) ? path.slice(root.length).replace(/^\//, '') : path
+  const crumbs = segments(root ? below : path)
+  const rootLabel = root ? root.split('/').filter(Boolean).pop() || location?.mountpoint : location?.mountpoint
+  const pathTo = (depth: number) => [root, ...crumbs.slice(0, depth)].filter(Boolean).join('/')
 
   if (!location) {
     return (
@@ -735,25 +747,32 @@ export function TagAssignBrowser({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">
+        {!lockedTo && (
+          <>
+            <button
+              className="text-zinc-500 hover:underline"
+              onClick={() => {
+                setLocation(null)
+                setListing(null)
+              }}
+            >
+              « Locations
+            </button>
+            <span className="text-zinc-400">/</span>
+          </>
+        )}
         <button
-          className="text-zinc-500 hover:underline"
-          onClick={() => {
-            setLocation(null)
-            setListing(null)
-          }}
+          className="text-indigo-600 hover:underline dark:text-indigo-400"
+          onClick={() => setPath(root)}
         >
-          « Locations
-        </button>
-        <span className="text-zinc-400">/</span>
-        <button className="text-indigo-600 hover:underline dark:text-indigo-400" onClick={() => setPath('')}>
-          {location.mountpoint}
+          {rootLabel}
         </button>
         {crumbs.map((c, i) => (
           <span key={i} className="flex items-center gap-1">
             <span className="text-zinc-400">/</span>
             <button
               className="text-indigo-600 hover:underline dark:text-indigo-400"
-              onClick={() => setPath(crumbs.slice(0, i + 1).join('/'))}
+              onClick={() => setPath(pathTo(i + 1))}
             >
               {c}
             </button>
@@ -765,7 +784,10 @@ export function TagAssignBrowser({
       {!listing && !listingError && <p className="text-sm text-zinc-500">Loading…</p>}
 
       {listing && (
-        <SubfolderList folders={listing.folders} onOpen={(name) => setPath([...crumbs, name].join('/'))} />
+        <SubfolderList
+          folders={listing.folders}
+          onOpen={(name) => setPath([root, ...crumbs, name].filter(Boolean).join('/'))}
+        />
       )}
 
       <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">

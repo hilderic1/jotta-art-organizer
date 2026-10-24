@@ -375,6 +375,9 @@ export default function CataloguePage() {
           artworks={store.artworks}
           onSave={handleSaveTags}
           initialLocation={selectedBrowseLocation}
+          lockedTo={
+            modeConfig && modeConfig.mode !== 'general' ? selectedBrowseLocation?.path ?? '' : null
+          }
         />
       )}
 
